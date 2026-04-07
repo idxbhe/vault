@@ -1,0 +1,32 @@
+# Rust build artifacts
+/target/
+Cargo.lock
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Test and local vault files
+test_vault.vault
+*.vault
+vault_export.json
+
+# Clipboard and clipboard-related files
+.clipboard_state
+
+# OS files
+Thumbs.db
+.env
+.env.local
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.bak
+.#*

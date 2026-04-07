@@ -1,0 +1,408 @@
+//! Vault file format and I/O
+
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use std::fs;
+use std::io::{Read, Write};
+use std::path::Path;
+use uuid::Uuid;
+
+use crate::crypto::{decrypt, encrypt, Argon2Params, EncryptedPayload, SecureString};
+use crate::crypto::{derive_key, generate_salt};
+use crate::domain::Vault;
+use crate::utils::error::{Error, Result};
+
+/// Magic bytes to identify vault files
+pub const VAULT_MAGIC: &[u8; 4] = b"VALT";
+
+/// Current file format version
+pub const VAULT_VERSION: u16 = 1;
+
+/// Vault file header (stored unencrypted)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VaultFileHeader {
+    /// Vault UUID
+    pub vault_id: Uuid,
+    /// Vault name (for display in registry)
+    pub vault_name: String,
+    /// Creation timestamp
+    pub created_at: DateTime<Utc>,
+    /// Whether a keyfile is required
+    pub has_keyfile: bool,
+    /// Number of security questions
+    pub security_question_count: u8,
+    /// Security question texts (for display)
+    pub security_questions: Vec<String>,
+}
+
+impl VaultFileHeader {
+    /// Create a header from a vault
+    pub fn from_vault(vault: &Vault, has_keyfile: bool) -> Self {
+        Self {
+            vault_id: vault.id,
+            vault_name: vault.name.clone(),
+            created_at: vault.created_at,
+            has_keyfile,
+            security_question_count: vault.security_questions.len() as u8,
+            security_questions: vault
+                .security_questions
+                .iter()
+                .map(|q| q.question.clone())
+                .collect(),
+        }
+    }
+}
+
+/// Complete vault file structure
+#[derive(Debug)]
+pub struct VaultFile {
+    /// Unencrypted header
+    pub header: VaultFileHeader,
+    /// Encrypted vault data
+    pub encrypted_payload: EncryptedPayload,
+}
+
+impl VaultFile {
+    /// Create a new vault file from a vault
+    pub fn new(
+        vault: &Vault,
+        password: &SecureString,
+        keyfile: Option<&[u8]>,
+    ) -> Result<Self> {
+        Self::new_with_params(vault, password, keyfile, Argon2Params::default())
+    }
+
+    /// Create a new vault file with custom Argon2 parameters
+    pub fn new_with_params(
+        vault: &Vault,
+        password: &SecureString,
+        keyfile: Option<&[u8]>,
+        params: Argon2Params,
+    ) -> Result<Self> {
+        let salt = generate_salt();
+        let key = derive_key(password, keyfile, &salt, &params)?;
+
+        // Serialize the vault
+        let vault_bytes = bincode::serialize(vault)
+            .map_err(|e| Error::Encryption(format!("Serialization failed: {}", e)))?;
+
+        // Encrypt the vault data
+        let encrypted_payload = encrypt(&vault_bytes, &key, salt, params)?;
+
+        let header = VaultFileHeader::from_vault(vault, keyfile.is_some());
+
+        Ok(Self {
+            header,
+            encrypted_payload,
+        })
+    }
+
+    /// Create a vault file using an existing derived key
+    /// Used for re-saving after edits without re-deriving from password
+    pub fn new_with_key(vault: Vault, key: &[u8; 32], salt: &[u8; 32]) -> Result<Self> {
+        let salt = *salt;  // Use provided salt instead of generating new one
+        let params = Argon2Params::default();
+
+        // Serialize the vault
+        let vault_bytes = bincode::serialize(&vault)
+            .map_err(|e| Error::Encryption(format!("Serialization failed: {}", e)))?;
+
+        // Encrypt the vault data
+        let encrypted_payload = encrypt(&vault_bytes, key, salt, params)?;
+
+        // We don't know if keyfile was used - header tracks that from original creation
+        let header = VaultFileHeader::from_vault(&vault, false);
+
+        Ok(Self {
+            header,
+            encrypted_payload,
+        })
+    }
+
+    /// Decrypt and return the vault
+    pub fn decrypt(
+        &self,
+        password: &SecureString,
+        keyfile: Option<&[u8]>,
+    ) -> Result<Vault> {
+        let key = derive_key(
+            password,
+            keyfile,
+            &self.encrypted_payload.salt,
+            &self.encrypted_payload.argon2_params,
+        )?;
+
+        let vault_bytes = decrypt(&self.encrypted_payload, &key)?;
+
+        bincode::deserialize(&vault_bytes)
+            .map_err(|_| Error::Decryption)
+    }
+
+    /// Decrypt and return the vault with the derived key
+    /// Returns (Vault, encryption_key) for use in saving later
+    pub fn decrypt_with_key(
+        &self,
+        password: &SecureString,
+        keyfile: Option<&[u8]>,
+    ) -> Result<(Vault, [u8; 32])> {
+        let key = derive_key(
+            password,
+            keyfile,
+            &self.encrypted_payload.salt,
+            &self.encrypted_payload.argon2_params,
+        )?;
+
+        let vault_bytes = decrypt(&self.encrypted_payload, &key)?;
+
+        let vault: Vault = bincode::deserialize(&vault_bytes)
+            .map_err(|_| Error::Decryption)?;
+
+        Ok((vault, key))
+    }
+
+    /// Read a vault file from disk
+    pub fn read<P: AsRef<Path>>(path: P) -> Result<Self> {
+        let path = path.as_ref();
+        let mut file = fs::File::open(path)
+            .map_err(|e| Error::FileRead(path.to_path_buf(), e))?;
+
+        // Read and verify magic
+        let mut magic = [0u8; 4];
+        file.read_exact(&mut magic)
+            .map_err(|e| Error::FileRead(path.to_path_buf(), e))?;
+        if &magic != VAULT_MAGIC {
+            return Err(Error::InvalidVaultFormat(
+                "Invalid vault file magic".to_string(),
+            ));
+        }
+
+        // Read version
+        let mut version_bytes = [0u8; 2];
+        file.read_exact(&mut version_bytes)
+            .map_err(|e| Error::FileRead(path.to_path_buf(), e))?;
+        let version = u16::from_le_bytes(version_bytes);
+        if version > VAULT_VERSION {
+            return Err(Error::InvalidVaultFormat(format!(
+                "Unsupported vault version: {}",
+                version
+            )));
+        }
+
+        // Read header length
+        let mut header_len_bytes = [0u8; 4];
+        file.read_exact(&mut header_len_bytes)
+            .map_err(|e| Error::FileRead(path.to_path_buf(), e))?;
+        let header_len = u32::from_le_bytes(header_len_bytes) as usize;
+
+        // Read header
+        let mut header_bytes = vec![0u8; header_len];
+        file.read_exact(&mut header_bytes)
+            .map_err(|e| Error::FileRead(path.to_path_buf(), e))?;
+        let header: VaultFileHeader = bincode::deserialize(&header_bytes)
+            .map_err(|e| Error::InvalidVaultFormat(format!("Invalid header: {}", e)))?;
+
+        // Read encrypted payload length
+        let mut payload_len_bytes = [0u8; 4];
+        file.read_exact(&mut payload_len_bytes)
+            .map_err(|e| Error::FileRead(path.to_path_buf(), e))?;
+        let payload_len = u32::from_le_bytes(payload_len_bytes) as usize;
+
+        // Read encrypted payload
+        let mut payload_bytes = vec![0u8; payload_len];
+        file.read_exact(&mut payload_bytes)
+            .map_err(|e| Error::FileRead(path.to_path_buf(), e))?;
+        let encrypted_payload: EncryptedPayload = bincode::deserialize(&payload_bytes)
+            .map_err(|e| Error::InvalidVaultFormat(format!("Invalid payload: {}", e)))?;
+
+        Ok(Self {
+            header,
+            encrypted_payload,
+        })
+    }
+
+    /// Write the vault file to disk
+    pub fn write<P: AsRef<Path>>(&self, path: P) -> Result<()> {
+        let path = path.as_ref();
+
+        // Ensure parent directory exists
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|e| Error::FileWrite(path.to_path_buf(), e))?;
+        }
+
+        let mut file = fs::File::create(path)
+            .map_err(|e| Error::FileWrite(path.to_path_buf(), e))?;
+
+        // Write magic
+        file.write_all(VAULT_MAGIC)
+            .map_err(|e| Error::FileWrite(path.to_path_buf(), e))?;
+
+        // Write version
+        file.write_all(&VAULT_VERSION.to_le_bytes())
+            .map_err(|e| Error::FileWrite(path.to_path_buf(), e))?;
+
+        // Serialize and write header
+        let header_bytes = bincode::serialize(&self.header)
+            .map_err(|e| Error::Encryption(format!("Header serialization failed: {}", e)))?;
+        file.write_all(&(header_bytes.len() as u32).to_le_bytes())
+            .map_err(|e| Error::FileWrite(path.to_path_buf(), e))?;
+        file.write_all(&header_bytes)
+            .map_err(|e| Error::FileWrite(path.to_path_buf(), e))?;
+
+        // Serialize and write encrypted payload
+        let payload_bytes = bincode::serialize(&self.encrypted_payload)
+            .map_err(|e| Error::Encryption(format!("Payload serialization failed: {}", e)))?;
+        file.write_all(&(payload_bytes.len() as u32).to_le_bytes())
+            .map_err(|e| Error::FileWrite(path.to_path_buf(), e))?;
+        file.write_all(&payload_bytes)
+            .map_err(|e| Error::FileWrite(path.to_path_buf(), e))?;
+
+        file.sync_all()
+            .map_err(|e| Error::FileWrite(path.to_path_buf(), e))?;
+
+        Ok(())
+    }
+}
+
+/// Quick function to read only the header (for registry updates)
+pub fn read_header<P: AsRef<Path>>(path: P) -> Result<VaultFileHeader> {
+    let vault_file = VaultFile::read(path)?;
+    Ok(vault_file.header)
+}
+
+/// Create a new vault file
+pub fn create_vault<P: AsRef<Path>>(
+    path: P,
+    vault: &Vault,
+    password: &SecureString,
+    keyfile: Option<&[u8]>,
+) -> Result<()> {
+    let vault_file = VaultFile::new(vault, password, keyfile)?;
+    vault_file.write(path)
+}
+
+/// Open and decrypt a vault file
+pub fn open_vault<P: AsRef<Path>>(
+    path: P,
+    password: &SecureString,
+    keyfile: Option<&[u8]>,
+) -> Result<Vault> {
+    let vault_file = VaultFile::read(path)?;
+    vault_file.decrypt(password, keyfile)
+}
+
+/// Save a vault to an existing file
+pub fn save_vault<P: AsRef<Path>>(
+    path: P,
+    vault: &Vault,
+    password: &SecureString,
+    keyfile: Option<&[u8]>,
+) -> Result<()> {
+    create_vault(path, vault, password, keyfile)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::Item;
+    use tempfile::tempdir;
+
+    // Helper to create vaults with fast test params
+    fn create_vault_fast<P: AsRef<Path>>(
+        path: P,
+        vault: &Vault,
+        password: &SecureString,
+        keyfile: Option<&[u8]>,
+    ) -> Result<()> {
+        let params = Argon2Params {
+            memory_kib: 1024,
+            iterations: 1,
+            parallelism: 1,
+        };
+        let vault_file = VaultFile::new_with_params(vault, password, keyfile, params)?;
+        vault_file.write(path)
+    }
+
+    #[test]
+    fn test_vault_file_roundtrip() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("test.vault");
+
+        let mut vault = Vault::new("Test Vault");
+        vault.add_item(Item::password("GitHub", "secret123"));
+
+        let password = SecureString::from_str("master_password");
+
+        // Create and write with fast params
+        create_vault_fast(&path, &vault, &password, None).unwrap();
+
+        // Verify file was written
+        assert!(path.exists(), "Vault file should exist");
+
+        // Read and decrypt
+        let loaded = open_vault(&path, &password, None).expect("Should decrypt successfully");
+
+        assert_eq!(loaded.name, vault.name);
+        assert_eq!(loaded.items.len(), 1);
+        assert_eq!(loaded.items[0].title, "GitHub");
+    }
+
+    #[test]
+    fn test_vault_file_with_keyfile() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("test.vault");
+
+        let vault = Vault::new("Secured Vault");
+        let password = SecureString::from_str("password");
+        let keyfile = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+        create_vault_fast(&path, &vault, &password, Some(&keyfile)).unwrap();
+
+        // Should fail without keyfile
+        assert!(open_vault(&path, &password, None).is_err());
+
+        // Should succeed with keyfile
+        let loaded = open_vault(&path, &password, Some(&keyfile)).unwrap();
+        assert_eq!(loaded.name, "Secured Vault");
+    }
+
+    #[test]
+    fn test_vault_file_wrong_password() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("test.vault");
+
+        let vault = Vault::new("Test");
+        let password = SecureString::from_str("correct_password");
+        let wrong = SecureString::from_str("wrong_password");
+
+        create_vault_fast(&path, &vault, &password, None).unwrap();
+
+        assert!(open_vault(&path, &wrong, None).is_err());
+    }
+
+    #[test]
+    fn test_read_header() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("test.vault");
+
+        let vault = Vault::new("Header Test").with_description("Testing header read");
+        let password = SecureString::from_str("password");
+
+        create_vault_fast(&path, &vault, &password, None).unwrap();
+
+        let header = read_header(&path).unwrap();
+        assert_eq!(header.vault_name, "Header Test");
+        assert!(!header.has_keyfile);
+    }
+
+    #[test]
+    fn test_vault_file_magic() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("invalid.vault");
+
+        // Write invalid magic
+        fs::write(&path, b"FAKE").unwrap();
+
+        assert!(VaultFile::read(&path).is_err());
+    }
+}
