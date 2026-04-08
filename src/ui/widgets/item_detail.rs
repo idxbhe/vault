@@ -21,7 +21,7 @@ use crate::utils::{icons, mask};
 pub fn render(
     frame: &mut Frame,
     area: Rect,
-    state: &AppState,
+    state: &mut AppState,
     focused: bool,
     theme: &ThemePalette,
 ) {
@@ -40,7 +40,8 @@ pub fn render(
             Style::default().fg(theme.accent),
         ));
 
-    let Some(item) = state.selected_item() else {
+    let item_opt = state.selected_item().cloned();
+    let Some(item) = item_opt else {
         render_empty(frame, area, block, theme);
         return;
     };
@@ -52,14 +53,27 @@ pub fn render(
         .unwrap_or(&[]);
 
     let revealed = state.ui_state.content_revealed;
-    let lines = build_detail_lines(item, tags, revealed, theme);
+    
+    // Split area for content and action buttons (hints now embedded in buttons)
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Min(5),      // Main content
+            Constraint::Length(1),   // Action buttons with embedded hints
+        ])
+        .split(block.inner(area));
+    
+    let lines = build_detail_lines(&item, tags, revealed, theme);
 
     let paragraph = Paragraph::new(lines)
-        .block(block)
         .wrap(Wrap { trim: false })
         .scroll((state.ui_state.detail_scroll_offset as u16, 0));
 
-    frame.render_widget(paragraph, area);
+    frame.render_widget(block, area);
+    frame.render_widget(paragraph, chunks[0]);
+    
+    // Render action buttons (now includes keyboard hints in labels)
+    render_action_buttons(frame, chunks[1], state, revealed, theme);
 }
 
 /// Build the detail lines for an item
@@ -154,10 +168,6 @@ fn build_detail_lines<'a>(
         Style::default().fg(theme.fg_muted),
     )));
 
-    // Action hints
-    lines.push(Line::from(""));
-    lines.push(build_action_hints(revealed, theme));
-
     lines
 }
 
@@ -171,7 +181,7 @@ fn build_content_section<'a>(
 
     match &item.content {
         ItemContent::Generic { value } => {
-            lines.push(build_field_line("Value", value, revealed, theme));
+            lines.push(build_field_line("Value", value, !revealed, theme)); // !revealed = should mask
         }
 
         ItemContent::CryptoSeed {
@@ -179,7 +189,34 @@ fn build_content_section<'a>(
             derivation_path,
             network,
         } => {
-            lines.push(build_field_line("Seed Phrase", seed_phrase, revealed, theme));
+            // Render seed phrase in a box like notes
+            lines.push(Line::from(Span::styled(
+                "╭─ Seed Phrase",
+                Style::default().fg(theme.fg_muted),
+            )));
+            
+            // Split seed phrase into words and display in box
+            if !revealed {
+                // When hidden, show masked version
+                lines.push(Line::from(Span::styled(
+                    format!("│ {}", mask::mask_content(seed_phrase)),
+                    Style::default().fg(theme.fg),
+                )));
+            } else {
+                // When revealed, show actual words in the box
+                for line in seed_phrase.lines() {
+                    lines.push(Line::from(Span::styled(
+                        format!("│ {}", line),
+                        Style::default().fg(theme.fg),
+                    )));
+                }
+            }
+            
+            lines.push(Line::from(Span::styled(
+                "╰─",
+                Style::default().fg(theme.fg_muted),
+            )));
+            
             if let Some(path) = derivation_path {
                 lines.push(build_field_line("Derivation Path", path, false, theme));
             }
@@ -197,7 +234,7 @@ fn build_content_section<'a>(
             if let Some(user) = username {
                 lines.push(build_field_line("Username", user, false, theme));
             }
-            lines.push(build_field_line("Password", password, revealed, theme));
+            lines.push(build_field_line("Password", password, !revealed, theme)); // !revealed = should mask
             if let Some(u) = url {
                 lines.push(build_field_line("URL", u, false, theme));
             }
@@ -242,7 +279,7 @@ fn build_content_section<'a>(
             if let Some(svc) = service {
                 lines.push(build_field_line("Service", svc, false, theme));
             }
-            lines.push(build_field_line("API Key", key, revealed, theme));
+            lines.push(build_field_line("API Key", key, !revealed, theme)); // !revealed = should mask
             if let Some(exp) = expires_at {
                 lines.push(build_field_line("Expires", &format_datetime(*exp), false, theme));
             }
@@ -308,6 +345,39 @@ fn build_action_hints<'a>(revealed: bool, theme: &'a ThemePalette) -> Line<'a> {
         ),
         Span::styled(" delete ", Style::default().fg(theme.fg_muted)),
     ])
+}
+
+/// Render action buttons with embedded keyboard hints at bottom of detail pane
+fn render_action_buttons(
+    frame: &mut Frame,
+    area: Rect,
+    state: &mut AppState,
+    revealed: bool,
+    theme: &ThemePalette,
+) {
+    use crate::ui::widgets::{render_button_row, ButtonStyle};
+    
+    let buttons = vec![
+        (
+            "reveal".to_string(),
+            if revealed { "Hide" } else { "Reveal" },
+            Some("r"),
+            ButtonStyle::Primary,
+        ),
+        ("copy".to_string(), "Copy", Some("y"), ButtonStyle::Secondary),
+        ("edit".to_string(), "Edit", Some("e"), ButtonStyle::Secondary),
+        ("delete".to_string(), "Delete", Some("d"), ButtonStyle::Danger),
+    ];
+    
+    let button_regions = render_button_row(frame, area, &buttons, theme);
+    
+    // Register button regions
+    for button_region in button_regions {
+        state.ui_state.layout_regions.register_clickable(
+            button_region.region,
+            crate::input::mouse::ClickableElement::Button(button_region.name),
+        );
+    }
 }
 
 /// Format metadata line

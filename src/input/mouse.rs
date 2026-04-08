@@ -2,7 +2,10 @@
 //!
 //! Processes mouse events for click and scroll interactions.
 
+use std::cell::Cell;
+use std::time::Instant;
 use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+use uuid::Uuid;
 
 /// Region of the screen for click detection
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,7 +80,7 @@ pub fn parse_mouse_event(event: MouseEvent) -> Option<MouseAction> {
     }
 }
 
-/// Named regions for UI layout
+/// Named regions for UI layout (general areas)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum UiRegion {
     List,
@@ -87,15 +90,64 @@ pub enum UiRegion {
     FloatingWindow,
 }
 
+/// Clickable element types with associated data
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ClickableElement {
+    /// A vault entry in login screen (index)
+    VaultEntry(usize),
+    /// An item in the main list (uuid)
+    ListItem(Uuid),
+    /// A form field (field index)
+    FormField(usize),
+    /// A kind option in selector (index)
+    KindOption(usize),
+    /// A search result (index)
+    SearchResult(usize),
+    /// A button with action name
+    Button(String),
+    /// Close button / click outside to close
+    CloseArea,
+}
+
+/// A clickable region with associated element data
+#[derive(Debug, Clone)]
+pub struct ClickableRegion {
+    pub region: ClickRegion,
+    pub element: ClickableElement,
+}
+
+impl ClickableRegion {
+    pub fn new(region: ClickRegion, element: ClickableElement) -> Self {
+        Self { region, element }
+    }
+    
+    pub fn contains(&self, x: u16, y: u16) -> bool {
+        self.region.contains(x, y)
+    }
+}
+
 /// Layout regions for click detection
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct LayoutRegions {
     regions: Vec<(UiRegion, ClickRegion)>,
+    /// Clickable elements with their regions
+    clickable_elements: Vec<ClickableRegion>,
+    /// Last click time and position for double-click detection
+    last_click: Cell<Option<(Instant, u16, u16)>>,
 }
+
+/// Double-click threshold in milliseconds
+const DOUBLE_CLICK_MS: u128 = 400;
+/// Double-click position tolerance in pixels
+const DOUBLE_CLICK_TOLERANCE: u16 = 2;
 
 impl LayoutRegions {
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            regions: Vec::new(),
+            clickable_elements: Vec::new(),
+            last_click: Cell::new(None),
+        }
     }
 
     /// Set a region
@@ -119,6 +171,51 @@ impl LayoutRegions {
     /// Clear all regions
     pub fn clear(&mut self) {
         self.regions.clear();
+        self.clickable_elements.clear();
+    }
+    
+    /// Register a clickable element
+    pub fn register_clickable(&mut self, region: ClickRegion, element: ClickableElement) {
+        self.clickable_elements.push(ClickableRegion::new(region, element));
+    }
+    
+    /// Find clickable element at position
+    pub fn find_clickable(&self, x: u16, y: u16) -> Option<&ClickableElement> {
+        // Search in reverse order (last registered = highest priority)
+        for clickable in self.clickable_elements.iter().rev() {
+            if clickable.contains(x, y) {
+                return Some(&clickable.element);
+            }
+        }
+        None
+    }
+    
+    /// Register a click and check for double-click
+    /// Returns true if this is a double-click
+    pub fn register_click(&self, x: u16, y: u16) -> bool {
+        let now = Instant::now();
+        
+        if let Some((last_time, last_x, last_y)) = self.last_click.get() {
+            let elapsed = now.duration_since(last_time).as_millis();
+            let dx = (x as i32 - last_x as i32).unsigned_abs() as u16;
+            let dy = (y as i32 - last_y as i32).unsigned_abs() as u16;
+            
+            if elapsed < DOUBLE_CLICK_MS && dx <= DOUBLE_CLICK_TOLERANCE && dy <= DOUBLE_CLICK_TOLERANCE {
+                // Double-click detected, reset last_click
+                self.last_click.set(None);
+                return true;
+            }
+        }
+        
+        // Record this click for potential double-click
+        self.last_click.set(Some((now, x, y)));
+        false
+    }
+}
+
+impl Default for LayoutRegions {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -162,5 +259,37 @@ mod tests {
         assert_eq!(layout.find_region(30, 10), Some(UiRegion::FloatingWindow));
         // Outside floating but inside list
         assert_eq!(layout.find_region(5, 5), Some(UiRegion::List));
+    }
+    
+    #[test]
+    fn test_clickable_elements() {
+        let mut layout = LayoutRegions::new();
+        
+        layout.register_clickable(
+            ClickRegion::new(0, 0, 30, 1),
+            ClickableElement::VaultEntry(0)
+        );
+        layout.register_clickable(
+            ClickRegion::new(0, 1, 30, 1),
+            ClickableElement::VaultEntry(1)
+        );
+        
+        assert_eq!(layout.find_clickable(10, 0), Some(&ClickableElement::VaultEntry(0)));
+        assert_eq!(layout.find_clickable(10, 1), Some(&ClickableElement::VaultEntry(1)));
+        assert_eq!(layout.find_clickable(10, 5), None);
+    }
+    
+    #[test]
+    fn test_double_click_detection() {
+        let mut layout = LayoutRegions::new();
+        
+        // First click - not a double-click
+        assert!(!layout.register_click(10, 10));
+        
+        // Second click immediately at same position - double-click
+        assert!(layout.register_click(10, 10));
+        
+        // Third click - not a double-click (previous was consumed)
+        assert!(!layout.register_click(10, 10));
     }
 }

@@ -137,13 +137,20 @@ impl SearchState {
     }
 }
 
-/// Render the search dialog
+/// Clickable region info returned from render
+#[derive(Debug, Clone)]
+pub struct SearchClickRegions {
+    pub result_regions: Vec<(usize, crate::input::mouse::ClickRegion)>,
+    pub dialog_area: crate::input::mouse::ClickRegion,
+}
+
+/// Render the search dialog and return clickable regions
 pub fn render(
     frame: &mut Frame,
     area: Rect,
     state: &SearchState,
     theme: &ThemePalette,
-) {
+) -> SearchClickRegions {
     // Calculate dialog dimensions
     let dialog_width = area.width.min(60);
     let dialog_height = (state.results.len() as u16 + 5).min(area.height - 4).max(7);
@@ -183,8 +190,18 @@ pub fn render(
     // Render search input
     render_input(frame, chunks[0], state, theme);
 
-    // Render results
-    render_results(frame, chunks[1], state, theme);
+    // Render results and collect clickable regions
+    let result_regions = render_results(frame, chunks[1], state, theme);
+    
+    SearchClickRegions {
+        result_regions,
+        dialog_area: crate::input::mouse::ClickRegion::new(
+            dialog_area.x,
+            dialog_area.y,
+            dialog_area.width,
+            dialog_area.height,
+        ),
+    }
 }
 
 /// Render the search input field
@@ -223,13 +240,13 @@ fn render_input(
     frame.render_widget(paragraph, area);
 }
 
-/// Render search results list
+/// Render search results list and return clickable regions
 fn render_results(
     frame: &mut Frame,
     area: Rect,
     state: &SearchState,
     theme: &ThemePalette,
-) {
+) -> Vec<(usize, crate::input::mouse::ClickRegion)> {
     if state.results.is_empty() {
         let hint = if state.query.is_empty() {
             "Type to search..."
@@ -242,7 +259,7 @@ fn render_results(
             .alignment(ratatui::layout::Alignment::Center);
 
         frame.render_widget(paragraph, area);
-        return;
+        return Vec::new();
     }
 
     let items: Vec<ListItem> = state
@@ -274,6 +291,25 @@ fn render_results(
 
     let list = List::new(items);
     frame.render_widget(list, area);
+    
+    // Return clickable regions for each result
+    // Note: List has no block/borders here, area is already the exact content area
+    state
+        .results
+        .iter()
+        .enumerate()
+        .map(|(i, _)| {
+            (
+                i,
+                crate::input::mouse::ClickRegion::new(
+                    area.x,
+                    area.y + i as u16,
+                    area.width,
+                    1,
+                ),
+            )
+        })
+        .collect()
 }
 
 #[cfg(test)]

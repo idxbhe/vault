@@ -49,8 +49,12 @@ pub enum Message {
     StartCreateVault,
     /// Enter password mode for selected vault
     EnterPasswordMode,
+    /// Go back to previous step in vault creation
+    LoginPrevStep,
     /// Cancel current input operation
     CancelInput,
+    /// Delete the currently selected vault from registry
+    DeleteSelectedVault,
     /// Select next vault in login screen
     LoginSelectNext,
     /// Select previous vault in login screen
@@ -155,12 +159,16 @@ pub enum Message {
     FormNextField,
     /// Move to previous form field
     FormPrevField,
+    /// Focus a specific form field by index (for mouse clicks)
+    FormFocusField(usize),
     /// Submit the form
     FormSubmit,
     /// Select item kind in kind selector
     KindSelectorNext,
     /// Move to previous kind
     KindSelectorPrev,
+    /// Select kind by index (for mouse clicks)
+    KindSelectorSelect(usize),
     /// Confirm kind selection
     KindSelectorConfirm,
 

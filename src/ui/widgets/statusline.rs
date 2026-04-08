@@ -10,7 +10,7 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::{AppMode, AppState, FloatingWindow, Pane};
+use crate::app::{AppMode, AppState, FloatingWindow, NotificationLevel, Pane};
 use crate::ui::theme::ThemePalette;
 use crate::utils::icons;
 
@@ -125,34 +125,69 @@ fn render_middle_section(frame: &mut Frame, area: Rect, state: &AppState, theme:
 
 /// Render the right section (item count, position)
 fn render_right_section(frame: &mut Frame, area: Rect, state: &AppState, theme: &ThemePalette) {
-    let mut info = String::new();
+    let item_info = if let Some(ref vs) = state.vault_state {
+        format!("{} items", vs.vault.items.len())
+    } else {
+        String::new()
+    };
 
-    if let Some(ref vs) = state.vault_state {
-        let total = vs.vault.items.len();
-        if let Some(_selected_id) = vs.selected_item_id {
-            // Could show position like "3/15"
-            info = format!("{} items", total);
-        } else {
-            info = format!("{} items", total);
+    let (icon, notif_color, notif_text) = match state.ui_state.notifications.last() {
+        Some(notif) => {
+            let (icon, color) = match notif.level {
+                NotificationLevel::Info => (icons::ui::INFO, theme.info),
+                NotificationLevel::Success => (icons::ui::SUCCESS, theme.success),
+                NotificationLevel::Warning => (icons::ui::WARNING, theme.warning),
+                NotificationLevel::Error => (icons::ui::ERROR, theme.error),
+            };
+            (icon, color, notif.message.as_str())
+        }
+        None => (icons::ui::INFO, theme.fg_muted, ""),
+    };
+
+    let mut right_spans = vec![Span::styled(" ", Style::default().bg(theme.bg_alt))];
+    if notif_text.is_empty() {
+        right_spans.push(Span::styled(
+            item_info,
+            Style::default().fg(theme.fg_muted).bg(theme.bg_alt),
+        ));
+    } else {
+        let mut max_notif_chars = area.width.saturating_sub(6) as usize; // icon + spacing/padding
+        if !item_info.is_empty() {
+            max_notif_chars = max_notif_chars.saturating_sub(item_info.len() + 3); // " | " + item info
+        }
+        max_notif_chars = max_notif_chars.max(8);
+
+        right_spans.push(Span::styled(
+            format!("{} ", icon),
+            Style::default()
+                .fg(notif_color)
+                .bg(theme.bg_alt)
+                .add_modifier(Modifier::BOLD),
+        ));
+        right_spans.push(Span::styled(
+            truncate_status_text(notif_text, max_notif_chars),
+            Style::default().fg(notif_color).bg(theme.bg_alt),
+        ));
+        if !item_info.is_empty() {
+            right_spans.push(Span::styled(
+                format!(" | {}", item_info),
+                Style::default().fg(theme.fg_muted).bg(theme.bg_alt),
+            ));
         }
     }
 
-    // Add notification count if any
-    if !state.ui_state.notifications.is_empty() {
-        info = format!(
-            "{} {} ",
-            icons::ui::INFO,
-            state.ui_state.notifications.len()
-        ) + &info;
-    }
-
-    let right = Paragraph::new(Line::from(vec![Span::styled(
-        format!(" {} ", info),
-        Style::default().fg(theme.fg_muted).bg(theme.bg_alt),
-    )]))
-    .alignment(Alignment::Right);
+    let right = Paragraph::new(Line::from(right_spans)).alignment(Alignment::Right);
 
     frame.render_widget(right, area);
+}
+
+fn truncate_status_text(text: &str, max_chars: usize) -> String {
+    if text.chars().count() <= max_chars {
+        return text.to_string();
+    }
+    let mut out: String = text.chars().take(max_chars.saturating_sub(1)).collect();
+    out.push('…');
+    out
 }
 
 /// Get context-sensitive keybinding hints

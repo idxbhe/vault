@@ -86,13 +86,13 @@ pub fn render(
     // Clear background
     frame.render_widget(Clear, area);
 
-    // Main layout: header, content, footer
+    // Main layout: header, content, buttons (merged with hints)
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(6),  // Header with logo
             Constraint::Min(10),    // Content
-            Constraint::Length(3),  // Footer
+            Constraint::Length(1),  // Buttons with embedded keyboard hints
         ])
         .split(area);
 
@@ -109,8 +109,8 @@ pub fn render(
         render_loading_overlay(frame, area, state, theme);
     }
     
-    // Render footer (read-only access to login_screen)
-    render_footer(frame, chunks[2], entering_password, creating_vault, theme);
+    // Render buttons (now includes keyboard hints in labels)
+    render_footer(frame, chunks[2], state, entering_password, creating_vault, theme);
 }
 
 /// Render the header with logo/title
@@ -131,7 +131,7 @@ fn render_header(frame: &mut Frame, area: Rect, theme: &ThemePalette) {
             ),
         ]),
         Line::from(Span::styled(
-            "Secure Password Manager",
+            "Secure Secret Manager",
             Style::default().fg(theme.fg_muted),
         )),
     ];
@@ -218,8 +218,9 @@ fn render_vault_list(
             .map(|(i, entry)| create_vault_list_item(entry, i == selected_vault, theme))
             .collect();
 
+        let block = create_block("Select Vault", theme);
         let list = List::new(items)
-            .block(create_block("Select Vault", theme))
+            .block(block.clone())
             .highlight_style(
                 Style::default()
                     .bg(theme.selection_bg)
@@ -228,21 +229,25 @@ fn render_vault_list(
 
         frame.render_widget(list, area);
         
-        // Register click regions for each vault item
-        // List widget has 1-line borders on all sides, plus title
-        let inner_y = area.y + 2; // Border top + title
-        let inner_x = area.x + 1; // Border left
-        let item_width = area.width.saturating_sub(2); // Subtract both borders
+        // Register clickable elements for each vault item
+        // Use block.inner() to get the exact inner area after borders and title
+        let inner = block.inner(area);
         
         for (i, _) in entries.iter().enumerate() {
-            let item_y = inner_y + i as u16;
-            if item_y < area.y + area.height - 1 { // Don't overlap bottom border
-                state.ui_state.register_region(
-                    crate::input::mouse::UiRegion::List,
-                    crate::input::mouse::ClickRegion::new(inner_x, item_y, item_width, 1),
+            let item_y = inner.y + i as u16;
+            if item_y < inner.y + inner.height { // Stay within inner bounds
+                state.ui_state.layout_regions.register_clickable(
+                    crate::input::mouse::ClickRegion::new(inner.x, item_y, inner.width, 1),
+                    crate::input::mouse::ClickableElement::VaultEntry(i),
                 );
             }
         }
+        
+        // Also register the list region for context
+        state.ui_state.register_region(
+            crate::input::mouse::UiRegion::List,
+            crate::input::mouse::ClickRegion::new(area.x, area.y, area.width, area.height),
+        );
     }
 }
 
@@ -451,53 +456,52 @@ fn render_create_vault_form(
 }
 
 /// Render the footer with keybinding hints
+/// Render action buttons with embedded keyboard hints
 fn render_footer(
     frame: &mut Frame,
     area: Rect,
+    state: &mut crate::app::AppState,
     entering_password: bool,
     creating_vault: bool,
     theme: &ThemePalette,
 ) {
-    let hints = if creating_vault {
-        vec![
-            ("Enter", "Create"),
-            ("Esc", "Cancel"),
-            ("Tab", "Next Field"),
-        ]
+    use crate::ui::widgets::{render_button_row, ButtonStyle};
+    
+    let buttons = if creating_vault {
+        let step = state.login_screen.create_step;
+        let mut btns = vec![];
+        
+        // Add back button if not on first step
+        if step > 0 {
+            btns.push(("prev-step".to_string(), "Back", Some("b"), ButtonStyle::Secondary));
+        }
+        
+        btns.push(("save-vault".to_string(), "Create", Some("Enter"), ButtonStyle::Primary));
+        btns.push(("cancel".to_string(), "Cancel", Some("Esc"), ButtonStyle::Secondary));
+        btns
     } else if entering_password {
-        vec![("Enter", "Unlock"), ("Esc", "Back")]
+        vec![
+            ("unlock".to_string(), "Unlock", Some("Enter"), ButtonStyle::Primary),
+            ("back".to_string(), "Back", Some("Esc"), ButtonStyle::Secondary),
+        ]
     } else {
         vec![
-            ("Enter", "Select"),
-            ("n", "New Vault"),
-            ("q", "Quit"),
+            ("select-vault".to_string(), "Select", Some("Enter"), ButtonStyle::Primary),
+            ("new-vault".to_string(), "New Vault", Some("n"), ButtonStyle::Secondary),
+            ("delete-vault".to_string(), "Delete", Some("d"), ButtonStyle::Danger),
+            ("quit".to_string(), "Quit", Some("q"), ButtonStyle::Secondary),
         ]
     };
 
-    let spans: Vec<Span> = hints
-        .iter()
-        .flat_map(|(key, action)| {
-            vec![
-                Span::styled(
-                    format!(" {} ", key),
-                    Style::default()
-                        .fg(theme.bg)
-                        .bg(theme.accent),
-                ),
-                Span::styled(
-                    format!(" {} ", action),
-                    Style::default().fg(theme.fg_muted),
-                ),
-                Span::raw("  "),
-            ]
-        })
-        .collect();
-
-    let footer = Paragraph::new(Line::from(spans))
-        .alignment(Alignment::Center)
-        .style(Style::default().bg(theme.bg_alt));
-
-    frame.render_widget(footer, area);
+    let button_regions = render_button_row(frame, area, &buttons, theme);
+    
+    // Register button regions
+    for button_region in button_regions {
+        state.ui_state.layout_regions.register_clickable(
+            button_region.region,
+            crate::input::mouse::ClickableElement::Button(button_region.name),
+        );
+    }
 }
 
 /// Create a styled block

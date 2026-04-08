@@ -229,13 +229,20 @@ fn get_fields_for_kind(kind: ItemKind) -> Vec<FormField> {
     fields
 }
 
-/// Render the edit form
+#[derive(Debug, Clone)]
+pub struct FormClickRegions {
+    pub field_regions: Vec<(usize, crate::input::mouse::ClickRegion)>,
+    pub button_regions: Vec<crate::ui::widgets::ButtonRegion>,
+    pub form_area: crate::input::mouse::ClickRegion,
+}
+
+/// Render the edit form and return clickable regions
 pub fn render(
     frame: &mut Frame,
     area: Rect,
     form_state: &EditFormState,
     theme: &ThemePalette,
-) {
+) -> FormClickRegions {
     // Calculate form dimensions
     let form_width = area.width.min(70);
     let form_height = (form_state.fields.len() as u16 * 3 + 6).min(area.height - 4);
@@ -269,18 +276,21 @@ pub fn render(
     let inner = block.inner(form_area);
     frame.render_widget(block, form_area);
 
-    // Layout for fields
-    let constraints: Vec<Constraint> = form_state
+    // Layout for fields + buttons (hints now embedded in buttons)
+    let mut constraints: Vec<Constraint> = form_state
         .fields
         .iter()
         .map(|_| Constraint::Length(3))
-        .chain(std::iter::once(Constraint::Min(1)))
         .collect();
+    constraints.push(Constraint::Min(1)); // Buttons with embedded hints
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints(constraints)
         .split(inner);
+
+    // Collect clickable field regions
+    let mut field_regions = Vec::new();
 
     // Render each field
     for (i, field) in form_state.fields.iter().enumerate() {
@@ -296,11 +306,33 @@ pub fn render(
             if is_focused { form_state.cursor } else { 0 },
             theme,
         );
+        
+        // Register this field as clickable
+        field_regions.push((
+            i,
+            crate::input::mouse::ClickRegion::new(
+                chunks[i].x,
+                chunks[i].y,
+                chunks[i].width,
+                chunks[i].height,
+            ),
+        ));
     }
 
-    // Render hints at bottom
-    let hints_area = *chunks.last().unwrap();
-    render_hints(frame, hints_area, theme);
+    // Render action buttons at bottom (now includes keyboard hints in labels)
+    let button_area = chunks[form_state.fields.len()];
+    let button_regions = render_form_buttons(frame, button_area, theme);
+    
+    FormClickRegions {
+        field_regions,
+        button_regions,
+        form_area: crate::input::mouse::ClickRegion::new(
+            form_area.x,
+            form_area.y,
+            form_area.width,
+            form_area.height,
+        ),
+    }
 }
 
 /// Render a single form field
@@ -355,30 +387,20 @@ fn render_field(
     frame.render_widget(paragraph, area);
 }
 
-/// Render action hints
-fn render_hints(frame: &mut Frame, area: Rect, theme: &ThemePalette) {
-    let hints = Line::from(vec![
-        Span::styled(
-            " Tab ",
-            Style::default().fg(theme.bg).bg(theme.accent),
-        ),
-        Span::styled(" next ", Style::default().fg(theme.fg_muted)),
-        Span::styled(
-            " Enter ",
-            Style::default().fg(theme.bg).bg(theme.success),
-        ),
-        Span::styled(" save ", Style::default().fg(theme.fg_muted)),
-        Span::styled(
-            " Esc ",
-            Style::default().fg(theme.bg).bg(theme.error),
-        ),
-        Span::styled(" cancel ", Style::default().fg(theme.fg_muted)),
-    ]);
-
-    let paragraph = Paragraph::new(hints)
-        .alignment(ratatui::layout::Alignment::Center);
-
-    frame.render_widget(paragraph, area);
+/// Render form action buttons with embedded keyboard hints
+fn render_form_buttons(
+    frame: &mut Frame,
+    area: Rect,
+    theme: &ThemePalette,
+) -> Vec<crate::ui::widgets::ButtonRegion> {
+    use crate::ui::widgets::{render_button_row, ButtonStyle};
+    
+    let buttons = vec![
+        ("form-save".to_string(), "Save", Some("Enter"), ButtonStyle::Primary),
+        ("form-cancel".to_string(), "Cancel", Some("Esc"), ButtonStyle::Secondary),
+    ];
+    
+    render_button_row(frame, area, &buttons, theme)
 }
 
 #[cfg(test)]

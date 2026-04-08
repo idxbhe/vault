@@ -68,7 +68,7 @@ fn route_login_key(state: &AppState, event: KeyEvent) -> Message {
     // If entering password, all input goes to password field
     if login_state.entering_password {
         return match event.code {
-            KeyCode::Char(c) if !event.modifiers.contains(KeyModifiers::CONTROL) => {
+            KeyCode::Char(c) if !event.modifiers.contains(KeyModifiers::CONTROL) && c != 'b' => {
                 Message::InputChar(c)
             }
             KeyCode::Backspace => Message::InputBackspace,
@@ -78,7 +78,7 @@ fn route_login_key(state: &AppState, event: KeyEvent) -> Message {
             KeyCode::Home => Message::InputHome,
             KeyCode::End => Message::InputEnd,
             KeyCode::Enter => Message::InputSubmit,
-            KeyCode::Esc => Message::CancelInput,
+            KeyCode::Esc | KeyCode::Char('b') => Message::CancelInput, // Esc or 'b' to go back
             KeyCode::Char('q') if event.modifiers.contains(KeyModifiers::CONTROL) => Message::ForceQuit,
             KeyCode::Char('c') if event.modifiers.contains(KeyModifiers::CONTROL) => Message::ForceQuit,
             _ => Message::Noop,
@@ -90,6 +90,10 @@ fn route_login_key(state: &AppState, event: KeyEvent) -> Message {
         KeyCode::Char('n') | KeyCode::Char('i') => {
             // Start creating a new vault
             Message::StartCreateVault
+        }
+        KeyCode::Char('d') => {
+            // Delete selected vault
+            Message::DeleteSelectedVault
         }
         KeyCode::Char('q') => Message::Quit,
         KeyCode::Char('c') | KeyCode::Char('q') if event.modifiers.contains(KeyModifiers::CONTROL) => {
@@ -364,8 +368,38 @@ fn route_mouse_event(state: &AppState, event: MouseEvent) -> Message {
     }
 
     match event.kind {
-        MouseEventKind::ScrollUp => Message::Scroll(ScrollDirection::Up),
-        MouseEventKind::ScrollDown => Message::Scroll(ScrollDirection::Down),
+        MouseEventKind::ScrollUp => {
+            // Context-aware scroll
+            let (x, y) = (event.column, event.row);
+            if let Some(region) = state.ui_state.layout_regions.find_region(x, y) {
+                match region {
+                    crate::input::mouse::UiRegion::Detail => Message::Scroll(ScrollDirection::Up),
+                    crate::input::mouse::UiRegion::List => {
+                        // Scroll list = select previous item
+                        Message::SelectPrevItem
+                    }
+                    _ => Message::Scroll(ScrollDirection::Up),
+                }
+            } else {
+                Message::Scroll(ScrollDirection::Up)
+            }
+        }
+        MouseEventKind::ScrollDown => {
+            // Context-aware scroll
+            let (x, y) = (event.column, event.row);
+            if let Some(region) = state.ui_state.layout_regions.find_region(x, y) {
+                match region {
+                    crate::input::mouse::UiRegion::Detail => Message::Scroll(ScrollDirection::Down),
+                    crate::input::mouse::UiRegion::List => {
+                        // Scroll list = select next item
+                        Message::SelectNextItem
+                    }
+                    _ => Message::Scroll(ScrollDirection::Down),
+                }
+            } else {
+                Message::Scroll(ScrollDirection::Down)
+            }
+        }
         MouseEventKind::Down(button) => {
             // Handle clicks based on current screen and region
             if button != crossterm::event::MouseButton::Left {
@@ -375,9 +409,21 @@ fn route_mouse_event(state: &AppState, event: MouseEvent) -> Message {
             let click_x = event.column;
             let click_y = event.row;
             
-            // Find which UI region was clicked
+            // First, check for clickable elements (most specific)
+            if let Some(element) = state.ui_state.layout_regions.find_clickable(click_x, click_y) {
+                // Register click and check for double-click
+                let is_double_click = state.ui_state.layout_regions.register_click(click_x, click_y);
+                return handle_clickable_element(state, element, click_x, click_y, is_double_click);
+            }
+            
+            // Fall back to region-based handling
             if let Some(region) = state.ui_state.layout_regions.find_region(click_x, click_y) {
                 return handle_click_in_region(state, region, click_x, click_y);
+            }
+            
+            // Click outside any known region - check if we should close floating window
+            if state.ui_state.floating_window.is_some() {
+                return Message::CloseFloatingWindow;
             }
             
             Message::Noop
@@ -386,31 +432,135 @@ fn route_mouse_event(state: &AppState, event: MouseEvent) -> Message {
     }
 }
 
+/// Handle click on a specific clickable element
+fn handle_clickable_element(
+    state: &AppState,
+    element: &crate::input::mouse::ClickableElement,
+    _x: u16,
+    _y: u16,
+    is_double_click: bool,
+) -> Message {
+    use crate::input::mouse::ClickableElement;
+    
+    match element {
+        ClickableElement::VaultEntry(index) => {
+            // On login screen, clicking a vault entry selects it
+            if state.login_screen.entering_password || state.login_screen.creating_vault {
+                // If already in password/create mode, ignore vault clicks
+                Message::Noop
+            } else if is_double_click {
+                // Double-click opens the vault (enters password mode)
+                Message::EnterPasswordMode
+            } else {
+                // Single click selects
+                Message::LoginSelectVault(*index)
+            }
+        }
+        
+        ClickableElement::ListItem(uuid) => {
+            // In main screen, clicking an item selects it
+            Message::SelectItem(*uuid)
+        }
+        
+        ClickableElement::FormField(index) => {
+            // Clicking a form field focuses it
+            Message::FormFocusField(*index)
+        }
+        
+        ClickableElement::KindOption(index) => {
+            // Clicking a kind option selects it
+            Message::KindSelectorSelect(*index)
+        }
+        
+        ClickableElement::SearchResult(index) => {
+            // Clicking a search result selects it
+            Message::SelectSearchResult(*index)
+        }
+        
+        ClickableElement::Button(action) => {
+            // Handle button clicks by action name
+            match action.as_str() {
+                // Login screen buttons
+                "new-vault" => Message::StartCreateVault,
+                "select-vault" => Message::EnterPasswordMode,
+                "delete-vault" => Message::DeleteSelectedVault,
+                "quit" => Message::Quit,
+                "unlock" => Message::InputSubmit, // Trigger unlock attempt
+                "back" => Message::CancelInput, // Fixed: was InputCancel, now CancelInput
+                "prev-step" => Message::LoginPrevStep, // Go back in vault creation
+                "save-vault" => Message::InputSubmit, // Trigger vault creation
+                "cancel" => {
+                    // In vault creation mode, cancel should exit to login
+                    if state.login_screen.creating_vault {
+                        Message::CancelInput
+                    } else {
+                        Message::InputCancel
+                    }
+                }
+                
+                // Item detail buttons
+                "reveal" => Message::ToggleContentReveal,
+                "copy" => Message::CopyCurrentItem,
+                "edit" => {
+                    if let Some(item) = state.selected_item() {
+                        Message::OpenFloatingWindow(
+                            crate::app::state::FloatingWindow::edit_item_form(item)
+                        )
+                    } else {
+                        Message::Noop
+                    }
+                }
+                "delete" => {
+                    if let Some(item) = state.selected_item() {
+                        Message::ConfirmDeleteItem(item.id)
+                    } else {
+                        Message::Noop
+                    }
+                }
+                
+                // Form buttons
+                "form-save" => Message::FormSubmit,
+                "form-cancel" => Message::CloseFloatingWindow,
+                
+                // Confirm delete buttons
+                "confirm-delete" => {
+                    // Get item ID from confirm delete window
+                    if let Some(crate::app::state::FloatingWindow::ConfirmDelete { item_id }) = &state.ui_state.floating_window {
+                        Message::DeleteItem(*item_id)
+                    } else {
+                        Message::Noop
+                    }
+                }
+                "cancel-delete" => Message::CloseFloatingWindow,
+                
+                // Legacy buttons
+                "submit" | "save" => Message::FormSubmit,
+                "confirm" => Message::InputSubmit,
+                "enter_password" => Message::EnterPasswordMode,
+                
+                _ => Message::Noop,
+            }
+        }
+        
+        ClickableElement::CloseArea => {
+            // Clicking close area closes the floating window
+            Message::CloseFloatingWindow
+        }
+    }
+}
+
 /// Handle a click within a specific UI region
 fn handle_click_in_region(
     state: &AppState,
     region: crate::input::mouse::UiRegion,
-    x: u16,
-    y: u16,
+    _x: u16,
+    _y: u16,
 ) -> Message {
     use crate::input::mouse::UiRegion;
     
     match state.screen {
         Screen::Login => {
-            // On login screen, List region contains vault items
-            if region == UiRegion::List {
-                // Calculate which vault item was clicked
-                // We need to find the item index from y-coordinate
-                // This requires knowing the list's inner y position
-                // For now, we'll use a simple heuristic based on stored regions
-                
-                // Count how many regions we have (one per vault item)
-                // The vault index equals the number of List regions above this click
-                let vault_index = calculate_vault_index_from_click(state, y);
-                if vault_index < state.registry.entries.len() {
-                    return Message::LoginSelectVault(vault_index);
-                }
-            }
+            // Clicks in login screen handled by clickable elements now
             Message::Noop
         }
         Screen::Main => {
@@ -424,31 +574,15 @@ fn handle_click_in_region(
                     // Focus the detail pane when clicked
                     Message::FocusPane(Pane::Detail)
                 }
+                UiRegion::FloatingWindow => {
+                    // Click inside floating window - don't close it
+                    Message::Noop
+                }
                 _ => Message::Noop,
             }
         }
         _ => Message::Noop,
     }
-}
-
-/// Calculate vault index from click y-coordinate
-/// This is a helper for login screen vault list clicks
-fn calculate_vault_index_from_click(state: &AppState, click_y: u16) -> usize {
-    // The vault items start at a specific y coordinate
-    // We registered each item with its y position
-    // Count how many items are above or at this y position
-    let mut count = 0;
-    for (i, _entry) in state.registry.entries.iter().enumerate() {
-        // Each item is at base_y + index
-        // For simplicity, we'll check if click_y matches expected position
-        // The first item is typically at y=4 (after header and border)
-        // This is a heuristic - ideally we'd store item positions
-        let expected_y = 4 + i as u16; // Approximate
-        if click_y >= expected_y && i < state.registry.entries.len() {
-            count = i;
-        }
-    }
-    count
 }
 
 #[cfg(test)]

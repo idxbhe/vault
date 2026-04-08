@@ -8,6 +8,30 @@
 - [x] vault korup saat tekan esc. sekarang esc aman - hanya close form tanpa save.
 - [x] **CRITICAL BUG FIXED**: Salt regeneration bug yang menyebabkan vault corrupt setelah save. Sekarang salt disimpan dan digunakan kembali saat save.
 
+## 🖱️ Mouse Navigation (NEW)
+
+### Fitur Mouse yang Tersedia
+
+**Login Screen:**
+- Klik vault untuk memilih vault
+- Scroll wheel untuk navigasi vault list
+
+**Main Screen:**
+- Klik item di list untuk memilih
+- Scroll wheel di list untuk navigasi item
+- Scroll wheel di detail pane untuk scroll konten
+- Klik panel untuk fokus (list/detail)
+
+**Floating Windows:**
+- Klik form field untuk fokus ke field tersebut
+- Klik kind option di selector untuk memilih jenis item
+- Klik search result untuk memilih hasil pencarian
+- Klik di luar floating window untuk menutup
+
+### Double-Click Support
+- Deteksi double-click tersedia (400ms threshold)
+- Dapat digunakan untuk future features (edit on double-click, etc.)
+
 ## Notes untuk User
 
 ### ⚠️ Vault yang Sudah Corrupt (judas, test5)
@@ -29,4 +53,5 @@ cargo run --release
 # 4. Restart dan unlock vault yang sama
 # 5. ✅ Item harus masih ada!
 ```
+
 

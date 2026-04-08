@@ -145,6 +145,26 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
             Effect::none()
         }
         
+        Message::LoginPrevStep => {
+            // Go back to previous step in vault creation
+            if state.login_screen.creating_vault && state.login_screen.create_step > 0 {
+                state.login_screen.create_step -= 1;
+                
+                // Restore appropriate input buffer for the previous step
+                state.ui_state.input_buffer.text.clear();
+                if state.login_screen.create_step == 0 {
+                    // Going back to name step - restore the name
+                    state.ui_state.input_buffer.text = state.login_screen.new_vault_name.clone();
+                    state.ui_state.input_buffer.masked = false;
+                } else {
+                    // Going back to password step - don't restore password for security
+                    state.ui_state.input_buffer.masked = true;
+                }
+                state.ui_state.input_buffer.cursor = state.ui_state.input_buffer.text.len();
+            }
+            Effect::none()
+        }
+        
         Message::CancelInput => {
             // Cancel any input mode and return to vault selection
             state.login_screen.entering_password = false;
@@ -156,6 +176,48 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
             state.ui_state.input_buffer.clear();
             state.ui_state.floating_window = None;
             Effect::none()
+        }
+
+        Message::DeleteSelectedVault => {
+            // Delete the currently selected vault from registry
+            if !state.registry.entries.is_empty() {
+                let selected_index = state.login_screen.selected_vault;
+                if selected_index < state.registry.entries.len() {
+                    let vault_name = state.registry.entries[selected_index].name.clone();
+                    
+                    // Remove from registry
+                    state.registry.entries.remove(selected_index);
+                    
+                    // Save updated registry
+                    let effect = match state.registry.save() {
+                        Ok(_) => {
+                            state.ui_state.notify(
+                                format!("Deleted vault: {}", vault_name),
+                                NotificationLevel::Info,
+                            );
+                            Effect::none()
+                        }
+                        Err(e) => {
+                            state.ui_state.notify(
+                                format!("Failed to save registry: {}", e),
+                                NotificationLevel::Error,
+                            );
+                            Effect::none()
+                        }
+                    };
+                    
+                    // Adjust selected index if needed
+                    if state.login_screen.selected_vault >= state.registry.entries.len() && !state.registry.entries.is_empty() {
+                        state.login_screen.selected_vault = state.registry.entries.len() - 1;
+                    }
+                    
+                    effect
+                } else {
+                    Effect::none()
+                }
+            } else {
+                Effect::none()
+            }
         }
 
         // === Login Screen Navigation ===
@@ -779,6 +841,19 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
             Effect::none()
         }
 
+        Message::FormFocusField(index) => {
+            match &mut state.ui_state.floating_window {
+                Some(FloatingWindow::NewItem { form }) | Some(FloatingWindow::EditItem { form, .. }) => {
+                    if index < form.fields.len() {
+                        form.focused_field = index;
+                        form.cursor = form.values[index].len();
+                    }
+                }
+                _ => {}
+            }
+            Effect::none()
+        }
+
         Message::FormSubmit => {
             // Handle form submission
             match state.ui_state.floating_window.take() {
@@ -863,6 +938,13 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
         Message::KindSelectorPrev => {
             if let Some(FloatingWindow::KindSelector { state: ref mut selector }) = state.ui_state.floating_window {
                 selector.prev();
+            }
+            Effect::none()
+        }
+
+        Message::KindSelectorSelect(index) => {
+            if let Some(FloatingWindow::KindSelector { state: ref mut selector }) = state.ui_state.floating_window {
+                selector.select(index);
             }
             Effect::none()
         }

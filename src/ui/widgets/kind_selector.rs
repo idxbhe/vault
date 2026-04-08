@@ -53,6 +53,13 @@ impl KindSelectorState {
         }
     }
 
+    /// Select by index (for mouse clicks)
+    pub fn select(&mut self, index: usize) {
+        if index < self.kinds.len() {
+            self.selected = index;
+        }
+    }
+
     /// Get the currently selected kind
     pub fn selected_kind(&self) -> ItemKind {
         self.kinds[self.selected]
@@ -70,13 +77,20 @@ fn kind_icon(kind: ItemKind) -> &'static str {
     }
 }
 
-/// Render the kind selector popup
+/// Clickable region info returned from render
+#[derive(Debug, Clone)]
+pub struct KindSelectorClickRegions {
+    pub option_regions: Vec<(usize, crate::input::mouse::ClickRegion)>,
+    pub popup_area: crate::input::mouse::ClickRegion,
+}
+
+/// Render the kind selector popup and return clickable regions
 pub fn render(
     frame: &mut Frame,
     area: Rect,
     state: &KindSelectorState,
     theme: &ThemePalette,
-) {
+) -> KindSelectorClickRegions {
     // Calculate popup dimensions
     let popup_width = 35u16;
     let popup_height = (state.kinds.len() as u16 + 2).min(area.height - 4);
@@ -112,26 +126,57 @@ pub fn render(
         })
         .collect();
 
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_style(Style::default().fg(theme.accent))
+        .title(Span::styled(
+            " Select Item Type ",
+            Style::default()
+                .fg(theme.accent)
+                .add_modifier(Modifier::BOLD),
+        ))
+        .style(Style::default().bg(theme.bg));
+
     let list = List::new(items)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_type(ratatui::widgets::BorderType::Rounded)
-                .border_style(Style::default().fg(theme.accent))
-                .title(Span::styled(
-                    " Select Item Type ",
-                    Style::default()
-                        .fg(theme.accent)
-                        .add_modifier(Modifier::BOLD),
-                ))
-                .style(Style::default().bg(theme.bg)),
-        )
+        .block(block.clone())
         .highlight_style(Style::default());
 
     let mut list_state = ListState::default();
     list_state.select(Some(state.selected));
 
     frame.render_stateful_widget(list, popup_area, &mut list_state);
+    
+    // Calculate clickable regions for each kind option
+    // Use block.inner() to get the exact inner area after borders and title
+    let inner = block.inner(popup_area);
+    
+    let option_regions: Vec<(usize, crate::input::mouse::ClickRegion)> = state
+        .kinds
+        .iter()
+        .enumerate()
+        .map(|(i, _)| {
+            (
+                i,
+                crate::input::mouse::ClickRegion::new(
+                    inner.x,
+                    inner.y + i as u16,
+                    inner.width,
+                    1,
+                ),
+            )
+        })
+        .collect();
+    
+    KindSelectorClickRegions {
+        option_regions,
+        popup_area: crate::input::mouse::ClickRegion::new(
+            popup_area.x,
+            popup_area.y,
+            popup_area.width,
+            popup_area.height,
+        ),
+    }
 }
 
 #[cfg(test)]

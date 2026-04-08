@@ -7,5 +7,5 @@ pub mod mouse;
 pub mod router;
 
 pub use keybindings::{format_key_combo, KeyAction, KeyCombo, KeybindingConfig};
-pub use mouse::{ClickRegion, LayoutRegions, MouseAction, UiRegion};
+pub use mouse::{ClickRegion, ClickableElement, LayoutRegions, MouseAction, UiRegion};
 pub use router::route_event;
