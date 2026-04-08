@@ -423,7 +423,7 @@ impl Widget for SearchPopup<'_> {
 
 ### Statusline
 
-Bottom status bar (Lualine-style).
+Bottom status bar (Lualine-style) yang juga menampilkan notifikasi terakhir secara inline.
 
 ```rust
 pub struct Statusline<'a> {
@@ -460,7 +460,7 @@ impl Widget for Statusline<'_> {
             None => String::new(),
         };
         
-        // Right section: keybinding hints
+        // Right section: keybinding hints + latest notification (inline)
         let hints: Vec<Span> = self.hints.iter()
             .flat_map(|(key, action)| {
                 vec![
@@ -487,7 +487,7 @@ impl Widget for Statusline<'_> {
 
 ### Notification
 
-Toast notification widget.
+Model notifikasi internal. Saat ini notifikasi tidak dirender sebagai popup/toast; pesan terakhir tampil inline di statusline.
 
 ```rust
 pub struct NotificationWidget<'a> {
@@ -502,47 +502,7 @@ pub struct Notification {
 }
 ```
 
-**Rendering:**
-
-```rust
-impl Widget for NotificationWidget<'_> {
-    fn render(self, area: Rect, buf: &mut Buffer) {
-        // Render in top-right corner
-        for (i, notif) in self.notifications.iter().enumerate() {
-            let y = area.y + 1 + (i as u16 * 3);
-            let width = notif.message.len() as u16 + 4;
-            let x = area.right().saturating_sub(width + 2);
-            
-            let notif_area = Rect::new(x, y, width, 3);
-            
-            let style = match notif.level {
-                NotificationLevel::Info => Style::default().fg(theme.info),
-                NotificationLevel::Success => Style::default().fg(theme.success),
-                NotificationLevel::Warning => Style::default().fg(theme.warning),
-                NotificationLevel::Error => Style::default().fg(theme.error),
-            };
-            
-            let icon = match notif.level {
-                NotificationLevel::Info => "",
-                NotificationLevel::Success => "",
-                NotificationLevel::Warning => "",
-                NotificationLevel::Error => "",
-            };
-            
-            let block = Block::default()
-                .borders(Borders::ALL)
-                .border_type(BorderType::Rounded)
-                .border_style(style);
-            
-            let text = Paragraph::new(format!("{} {}", icon, notif.message))
-                .block(block);
-            
-            Clear.render(notif_area, buf);
-            text.render(notif_area, buf);
-        }
-    }
-}
-```
+**Catatan:** rendering notifikasi dilakukan oleh `Statusline`, bukan sebagai overlay popup.
 
 ### ConfirmDialog
 

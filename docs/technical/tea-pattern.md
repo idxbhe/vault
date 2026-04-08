@@ -426,8 +426,8 @@ pub fn render(frame: &mut Frame, state: &AppState, theme: &ThemePalette) {
         render_floating_window(frame, area, window, state, theme);
     }
     
-    // Render notifications
-    render_notifications(frame, area, &state.ui_state.notifications, theme);
+    // Statusline also renders the latest inline notification
+    render_statusline(frame, chunks[1], state, theme);
 }
 ```
 
