@@ -75,7 +75,7 @@ pub fn derive_key(
 ) -> Result<[u8; 32]> {
     // Combine password and keyfile material
     let mut key_material = password.as_bytes().to_vec();
-    
+
     if let Some(kf_data) = keyfile {
         // XOR keyfile with password, extending if keyfile is longer
         for (i, &kf_byte) in kf_data.iter().enumerate() {
@@ -126,7 +126,7 @@ pub fn hash_security_answer(answer: &SecureString) -> Result<(Vec<u8>, [u8; 32])
         iterations: 2,
         parallelism: 2,
     };
-    
+
     let key = derive_key(answer, None, &salt, &params)?;
     Ok((key.to_vec(), salt))
 }
@@ -142,9 +142,9 @@ pub fn verify_security_answer(
         iterations: 2,
         parallelism: 2,
     };
-    
+
     let derived = derive_key(answer, None, salt, &params)?;
-    
+
     // Constant-time comparison
     Ok(constant_time_compare(&derived, stored_hash))
 }
@@ -154,7 +154,7 @@ fn constant_time_compare(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
         return false;
     }
-    
+
     let mut result = 0u8;
     for (x, y) in a.iter().zip(b.iter()) {
         result |= x ^ y;
@@ -170,7 +170,7 @@ mod tests {
     fn test_generate_salt() {
         let salt1 = generate_salt();
         let salt2 = generate_salt();
-        
+
         assert_ne!(salt1, salt2);
         assert_eq!(salt1.len(), 32);
     }
@@ -180,7 +180,7 @@ mod tests {
         let password = SecureString::from_str("test_password");
         let salt = generate_salt();
         let params = Argon2Params::fast_for_testing();
-        
+
         let key = derive_key(&password, None, &salt, &params).unwrap();
         assert_eq!(key.len(), 32);
     }
@@ -190,10 +190,10 @@ mod tests {
         let password = SecureString::from_str("test_password");
         let salt = [42u8; 32];
         let params = Argon2Params::fast_for_testing();
-        
+
         let key1 = derive_key(&password, None, &salt, &params).unwrap();
         let key2 = derive_key(&password, None, &salt, &params).unwrap();
-        
+
         assert_eq!(key1, key2);
     }
 
@@ -203,10 +203,10 @@ mod tests {
         let keyfile = vec![1, 2, 3, 4, 5];
         let salt = [42u8; 32];
         let params = Argon2Params::fast_for_testing();
-        
+
         let key_without_kf = derive_key(&password, None, &salt, &params).unwrap();
         let key_with_kf = derive_key(&password, Some(&keyfile), &salt, &params).unwrap();
-        
+
         assert_ne!(key_without_kf, key_with_kf);
     }
 
@@ -216,10 +216,10 @@ mod tests {
         let password2 = SecureString::from_str("password2");
         let salt = [42u8; 32];
         let params = Argon2Params::fast_for_testing();
-        
+
         let key1 = derive_key(&password1, None, &salt, &params).unwrap();
         let key2 = derive_key(&password2, None, &salt, &params).unwrap();
-        
+
         assert_ne!(key1, key2);
     }
 
@@ -227,10 +227,10 @@ mod tests {
     fn test_security_answer_hash_verify() {
         let answer = SecureString::from_str("my pet name");
         let (hash, salt) = hash_security_answer(&answer).unwrap();
-        
+
         // Correct answer should verify
         assert!(verify_security_answer(&answer, &hash, &salt).unwrap());
-        
+
         // Wrong answer should not verify
         let wrong = SecureString::from_str("wrong answer");
         assert!(!verify_security_answer(&wrong, &hash, &salt).unwrap());
@@ -242,7 +242,7 @@ mod tests {
         let b = [1, 2, 3, 4];
         let c = [1, 2, 3, 5];
         let d = [1, 2, 3];
-        
+
         assert!(constant_time_compare(&a, &b));
         assert!(!constant_time_compare(&a, &c));
         assert!(!constant_time_compare(&a, &d));

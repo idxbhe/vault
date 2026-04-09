@@ -3,11 +3,11 @@
 //! Shows temporary notifications/toasts at the top-right of the screen.
 
 use ratatui::{
+    Frame,
     layout::{Alignment, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, Clear, Paragraph},
-    Frame,
 };
 
 use crate::app::{Notification, NotificationLevel};
@@ -30,7 +30,10 @@ pub fn render(frame: &mut Frame, area: Rect, notifications: &[Notification], the
     }
 
     // Show at most MAX_VISIBLE_NOTIFICATIONS
-    let visible: Vec<_> = notifications.iter().take(MAX_VISIBLE_NOTIFICATIONS).collect();
+    let visible: Vec<_> = notifications
+        .iter()
+        .take(MAX_VISIBLE_NOTIFICATIONS)
+        .collect();
 
     // Position notifications at top-right corner
     let start_y = area.y + 1;
@@ -75,7 +78,10 @@ fn render_notification(
     // Truncate message if too long
     let max_msg_len = (area.width as usize).saturating_sub(6); // Account for icon, spaces, borders
     let message = if notification.message.len() > max_msg_len {
-        format!("{}...", &notification.message[..max_msg_len.saturating_sub(3)])
+        format!(
+            "{}...",
+            &notification.message[..max_msg_len.saturating_sub(3)]
+        )
     } else {
         notification.message.clone()
     };

@@ -2,9 +2,9 @@
 //!
 //! Processes mouse events for click and scroll interactions.
 
+use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use std::cell::Cell;
 use std::time::Instant;
-use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use uuid::Uuid;
 
 /// Region of the screen for click detection
@@ -18,7 +18,12 @@ pub struct ClickRegion {
 
 impl ClickRegion {
     pub fn new(x: u16, y: u16, width: u16, height: u16) -> Self {
-        Self { x, y, width, height }
+        Self {
+            x,
+            y,
+            width,
+            height,
+        }
     }
 
     /// Check if a point is within this region
@@ -120,7 +125,7 @@ impl ClickableRegion {
     pub fn new(region: ClickRegion, element: ClickableElement) -> Self {
         Self { region, element }
     }
-    
+
     pub fn contains(&self, x: u16, y: u16) -> bool {
         self.region.contains(x, y)
     }
@@ -173,12 +178,13 @@ impl LayoutRegions {
         self.regions.clear();
         self.clickable_elements.clear();
     }
-    
+
     /// Register a clickable element
     pub fn register_clickable(&mut self, region: ClickRegion, element: ClickableElement) {
-        self.clickable_elements.push(ClickableRegion::new(region, element));
+        self.clickable_elements
+            .push(ClickableRegion::new(region, element));
     }
-    
+
     /// Find clickable element at position
     pub fn find_clickable(&self, x: u16, y: u16) -> Option<&ClickableElement> {
         // Search in reverse order (last registered = highest priority)
@@ -189,24 +195,27 @@ impl LayoutRegions {
         }
         None
     }
-    
+
     /// Register a click and check for double-click
     /// Returns true if this is a double-click
     pub fn register_click(&self, x: u16, y: u16) -> bool {
         let now = Instant::now();
-        
+
         if let Some((last_time, last_x, last_y)) = self.last_click.get() {
             let elapsed = now.duration_since(last_time).as_millis();
             let dx = (x as i32 - last_x as i32).unsigned_abs() as u16;
             let dy = (y as i32 - last_y as i32).unsigned_abs() as u16;
-            
-            if elapsed < DOUBLE_CLICK_MS && dx <= DOUBLE_CLICK_TOLERANCE && dy <= DOUBLE_CLICK_TOLERANCE {
+
+            if elapsed < DOUBLE_CLICK_MS
+                && dx <= DOUBLE_CLICK_TOLERANCE
+                && dy <= DOUBLE_CLICK_TOLERANCE
+            {
                 // Double-click detected, reset last_click
                 self.last_click.set(None);
                 return true;
             }
         }
-        
+
         // Record this click for potential double-click
         self.last_click.set(Some((now, x, y)));
         false
@@ -260,35 +269,41 @@ mod tests {
         // Outside floating but inside list
         assert_eq!(layout.find_region(5, 5), Some(UiRegion::List));
     }
-    
+
     #[test]
     fn test_clickable_elements() {
         let mut layout = LayoutRegions::new();
-        
+
         layout.register_clickable(
             ClickRegion::new(0, 0, 30, 1),
-            ClickableElement::VaultEntry(0)
+            ClickableElement::VaultEntry(0),
         );
         layout.register_clickable(
             ClickRegion::new(0, 1, 30, 1),
-            ClickableElement::VaultEntry(1)
+            ClickableElement::VaultEntry(1),
         );
-        
-        assert_eq!(layout.find_clickable(10, 0), Some(&ClickableElement::VaultEntry(0)));
-        assert_eq!(layout.find_clickable(10, 1), Some(&ClickableElement::VaultEntry(1)));
+
+        assert_eq!(
+            layout.find_clickable(10, 0),
+            Some(&ClickableElement::VaultEntry(0))
+        );
+        assert_eq!(
+            layout.find_clickable(10, 1),
+            Some(&ClickableElement::VaultEntry(1))
+        );
         assert_eq!(layout.find_clickable(10, 5), None);
     }
-    
+
     #[test]
     fn test_double_click_detection() {
-        let mut layout = LayoutRegions::new();
-        
+        let layout = LayoutRegions::new();
+
         // First click - not a double-click
         assert!(!layout.register_click(10, 10));
-        
+
         // Second click immediately at same position - double-click
         assert!(layout.register_click(10, 10));
-        
+
         // Third click - not a double-click (previous was consumed)
         assert!(!layout.register_click(10, 10));
     }

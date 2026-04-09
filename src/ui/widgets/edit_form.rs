@@ -3,11 +3,11 @@
 //! A floating form dialog with multiple input fields.
 
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
-    text::{Line, Span},
+    text::Span,
     widgets::{Block, Borders, Clear, Paragraph},
-    Frame,
 };
 
 use crate::domain::ItemKind;
@@ -79,7 +79,7 @@ impl EditFormState {
     pub fn new(kind: ItemKind, is_new: bool) -> Self {
         let fields = get_fields_for_kind(kind);
         let values = vec![String::new(); fields.len()];
-        
+
         Self {
             kind,
             fields,
@@ -104,7 +104,10 @@ impl EditFormState {
 
     /// Get the current field value
     pub fn current_value(&self) -> &str {
-        self.values.get(self.focused_field).map(|s| s.as_str()).unwrap_or("")
+        self.values
+            .get(self.focused_field)
+            .map(|s| s.as_str())
+            .unwrap_or("")
     }
 
     /// Get the current field value mutably
@@ -256,9 +259,17 @@ pub fn render(
 
     // Build title
     let title = if form_state.is_new {
-        format!(" {} New {} ", icons::ui::ADD, form_state.kind.display_name())
+        format!(
+            " {} New {} ",
+            icons::ui::ADD,
+            form_state.kind.display_name()
+        )
     } else {
-        format!(" {} Edit {} ", icons::ui::EDIT, form_state.kind.display_name())
+        format!(
+            " {} Edit {} ",
+            icons::ui::EDIT,
+            form_state.kind.display_name()
+        )
     };
 
     let block = Block::default()
@@ -306,7 +317,7 @@ pub fn render(
             if is_focused { form_state.cursor } else { 0 },
             theme,
         );
-        
+
         // Register this field as clickable
         field_regions.push((
             i,
@@ -322,7 +333,7 @@ pub fn render(
     // Render action buttons at bottom (now includes keyboard hints in labels)
     let button_area = chunks[form_state.fields.len()];
     let button_regions = render_form_buttons(frame, button_area, theme);
-    
+
     FormClickRegions {
         field_regions,
         button_regions,
@@ -393,13 +404,23 @@ fn render_form_buttons(
     area: Rect,
     theme: &ThemePalette,
 ) -> Vec<crate::ui::widgets::ButtonRegion> {
-    use crate::ui::widgets::{render_button_row, ButtonStyle};
-    
+    use crate::ui::widgets::{ButtonStyle, render_button_row};
+
     let buttons = vec![
-        ("form-save".to_string(), "Save", Some("Enter"), ButtonStyle::Primary),
-        ("form-cancel".to_string(), "Cancel", Some("Esc"), ButtonStyle::Secondary),
+        (
+            "form-save".to_string(),
+            "Save",
+            Some("Enter"),
+            ButtonStyle::Primary,
+        ),
+        (
+            "form-cancel".to_string(),
+            "Cancel",
+            Some("Esc"),
+            ButtonStyle::Secondary,
+        ),
     ];
-    
+
     render_button_row(frame, area, &buttons, theme)
 }
 
@@ -441,7 +462,7 @@ mod tests {
     #[test]
     fn test_form_input() {
         let mut form = EditFormState::new(ItemKind::Generic, true);
-        
+
         form.insert('H');
         form.insert('e');
         form.insert('l');
@@ -449,7 +470,7 @@ mod tests {
         form.insert('o');
 
         assert_eq!(form.current_value(), "Hello");
-        
+
         form.backspace();
         assert_eq!(form.current_value(), "Hell");
     }

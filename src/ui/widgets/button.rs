@@ -1,11 +1,11 @@
 //! Button widget - renders clickable buttons with different styles
 
 use ratatui::{
+    Frame,
     layout::{Alignment, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
-    Frame,
 };
 
 use crate::ui::theme::ThemePalette;
@@ -29,7 +29,7 @@ pub struct ButtonRegion {
 }
 
 /// Render a row of buttons and return their clickable regions
-/// 
+///
 /// Buttons are rendered as solid background blocks with optional keyboard hints: ` Label (key) `
 /// Returns the regions for mouse click registration
 pub fn render_button_row<'a>(
@@ -66,7 +66,8 @@ pub fn render_button_row<'a>(
     let center_padding = area.width.saturating_sub(total_width) / 2;
     let mut x_offset = area.x.saturating_add(center_padding);
 
-    for (index, (name, button_text, button_width, btn_style)) in rendered_buttons.iter().enumerate() {
+    for (index, (name, button_text, button_width, btn_style)) in rendered_buttons.iter().enumerate()
+    {
         if index > 0 {
             spans.push(Span::raw("  "));
             x_offset = x_offset.saturating_add(2);
@@ -81,36 +82,27 @@ pub fn render_button_row<'a>(
 
         spans.push(Span::styled(
             button_text.clone(),
-            Style::default()
-                .fg(fg)
-                .bg(bg)
-                .add_modifier(Modifier::BOLD),
+            Style::default().fg(fg).bg(bg).add_modifier(Modifier::BOLD),
         ));
 
         // Register clickable region for this button
         regions.push(ButtonRegion {
             name: name.clone(),
-            region: crate::input::mouse::ClickRegion::new(
-                x_offset,
-                area.y,
-                *button_width,
-                1,
-            ),
+            region: crate::input::mouse::ClickRegion::new(x_offset, area.y, *button_width, 1),
         });
 
         x_offset = x_offset.saturating_add(*button_width);
     }
 
     // Render the button row with center alignment
-    let paragraph = Paragraph::new(Line::from(spans))
-        .alignment(Alignment::Center);
+    let paragraph = Paragraph::new(Line::from(spans)).alignment(Alignment::Center);
     frame.render_widget(paragraph, area);
 
     regions
 }
 
 /// Render keyboard hints (shortcuts) in a compact format
-/// 
+///
 /// Renders hints as: `key: action  key: action` in muted style
 pub fn render_keyboard_hints(
     frame: &mut Frame,
@@ -137,19 +129,15 @@ pub fn render_keyboard_hints(
                 .fg(theme.fg_muted)
                 .add_modifier(Modifier::BOLD),
         ));
-        
+
         spans.push(Span::styled(": ", Style::default().fg(theme.fg_muted)));
-        
+
         // Action in muted color
-        spans.push(Span::styled(
-            *action,
-            Style::default().fg(theme.fg_muted),
-        ));
+        spans.push(Span::styled(*action, Style::default().fg(theme.fg_muted)));
     }
 
     let line = Line::from(spans);
-    let paragraph = Paragraph::new(line)
-        .alignment(ratatui::layout::Alignment::Center);
+    let paragraph = Paragraph::new(line).alignment(ratatui::layout::Alignment::Center);
 
     frame.render_widget(paragraph, area);
 }

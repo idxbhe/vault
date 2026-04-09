@@ -16,9 +16,7 @@ pub enum Message {
     FocusPane(Pane),
     
     // Vault lifecycle
-    CreateVault { name: String, password: String },
-    OpenVault { path: PathBuf },
-    UnlockVault { password: SecureString, keyfile: Option<Vec<u8>> },
+    UnlockVault { password: SecureString, keyfile: Option<PathBuf> },
     SaveVault,
     LockVault,
     CloseVault,
@@ -120,32 +118,13 @@ Message::FocusPane(Pane::Detail)
 
 ### Vault Lifecycle Messages
 
-#### `CreateVault { name, password }`
-Membuat vault baru dengan nama dan password.
-
-```rust
-Message::CreateVault {
-    name: "My Vault".to_string(),
-    password: "secure_password".to_string(),
-}
-```
-
-#### `OpenVault { path }`
-Membuka vault file dari path.
-
-```rust
-Message::OpenVault {
-    path: PathBuf::from("/path/to/vault.vault"),
-}
-```
-
 #### `UnlockVault { password, keyfile }`
-Unlock vault dengan password dan optional keyfile.
+Unlock vault yang dipilih di login screen dengan password dan optional path keyfile.
 
 ```rust
 Message::UnlockVault {
     password: SecureString::new("password".to_string()),
-    keyfile: None,
+    keyfile: Some(PathBuf::from("/path/to/keyfile.key")),
 }
 ```
 

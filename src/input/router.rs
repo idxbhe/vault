@@ -4,9 +4,7 @@
 
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 
-use crate::app::{
-    AppMode, AppState, FloatingWindow, Message, Pane, Screen, ScrollDirection,
-};
+use crate::app::{AppState, FloatingWindow, Message, Pane, Screen, ScrollDirection};
 
 use super::keybindings::{KeyAction, KeybindingConfig};
 
@@ -21,11 +19,7 @@ pub fn route_event(state: &AppState, event: Event, keybindings: &KeybindingConfi
 }
 
 /// Route a key event to a message
-fn route_key_event(
-    state: &AppState,
-    event: KeyEvent,
-    keybindings: &KeybindingConfig,
-) -> Message {
+fn route_key_event(state: &AppState, event: KeyEvent, keybindings: &KeybindingConfig) -> Message {
     // Handle floating windows first
     if let Some(ref window) = state.ui_state.floating_window {
         return route_floating_window_key(state, event, window);
@@ -44,7 +38,7 @@ fn route_key_event(
 fn route_login_key(state: &AppState, event: KeyEvent) -> Message {
     // Check login screen mode
     let login_state = &state.login_screen;
-    
+
     // If creating a new vault, all input goes to vault name field
     if login_state.creating_vault {
         return match event.code {
@@ -59,16 +53,20 @@ fn route_login_key(state: &AppState, event: KeyEvent) -> Message {
             KeyCode::End => Message::InputEnd,
             KeyCode::Enter => Message::InputSubmit,
             KeyCode::Esc => Message::CancelInput,
-            KeyCode::Char('q') if event.modifiers.contains(KeyModifiers::CONTROL) => Message::ForceQuit,
-            KeyCode::Char('c') if event.modifiers.contains(KeyModifiers::CONTROL) => Message::ForceQuit,
+            KeyCode::Char('q') if event.modifiers.contains(KeyModifiers::CONTROL) => {
+                Message::ForceQuit
+            }
+            KeyCode::Char('c') if event.modifiers.contains(KeyModifiers::CONTROL) => {
+                Message::ForceQuit
+            }
             _ => Message::Noop,
         };
     }
-    
-    // If entering password, all input goes to password field
-    if login_state.entering_password {
+
+    // If entering keyfile path, all input goes to keyfile path field
+    if login_state.entering_keyfile_path {
         return match event.code {
-            KeyCode::Char(c) if !event.modifiers.contains(KeyModifiers::CONTROL) && c != 'b' => {
+            KeyCode::Char(c) if !event.modifiers.contains(KeyModifiers::CONTROL) => {
                 Message::InputChar(c)
             }
             KeyCode::Backspace => Message::InputBackspace,
@@ -78,13 +76,41 @@ fn route_login_key(state: &AppState, event: KeyEvent) -> Message {
             KeyCode::Home => Message::InputHome,
             KeyCode::End => Message::InputEnd,
             KeyCode::Enter => Message::InputSubmit,
-            KeyCode::Esc | KeyCode::Char('b') => Message::CancelInput, // Esc or 'b' to go back
-            KeyCode::Char('q') if event.modifiers.contains(KeyModifiers::CONTROL) => Message::ForceQuit,
-            KeyCode::Char('c') if event.modifiers.contains(KeyModifiers::CONTROL) => Message::ForceQuit,
+            KeyCode::Esc => Message::CancelInput,
+            KeyCode::Char('q') if event.modifiers.contains(KeyModifiers::CONTROL) => {
+                Message::ForceQuit
+            }
+            KeyCode::Char('c') if event.modifiers.contains(KeyModifiers::CONTROL) => {
+                Message::ForceQuit
+            }
             _ => Message::Noop,
         };
     }
-    
+
+    // If entering password, all input goes to password field
+    if login_state.entering_password {
+        return match event.code {
+            KeyCode::Char(c) if !event.modifiers.contains(KeyModifiers::CONTROL) => {
+                Message::InputChar(c)
+            }
+            KeyCode::Backspace => Message::InputBackspace,
+            KeyCode::Delete => Message::InputDelete,
+            KeyCode::Left => Message::InputLeft,
+            KeyCode::Right => Message::InputRight,
+            KeyCode::Home => Message::InputHome,
+            KeyCode::End => Message::InputEnd,
+            KeyCode::Enter => Message::InputSubmit,
+            KeyCode::Esc => Message::CancelInput,
+            KeyCode::Char('q') if event.modifiers.contains(KeyModifiers::CONTROL) => {
+                Message::ForceQuit
+            }
+            KeyCode::Char('c') if event.modifiers.contains(KeyModifiers::CONTROL) => {
+                Message::ForceQuit
+            }
+            _ => Message::Noop,
+        };
+    }
+
     // Otherwise, we're in vault selection mode - special keybindings
     match event.code {
         KeyCode::Char('n') | KeyCode::Char('i') => {
@@ -95,10 +121,12 @@ fn route_login_key(state: &AppState, event: KeyEvent) -> Message {
             // Delete selected vault
             Message::DeleteSelectedVault
         }
-        KeyCode::Char('q') => Message::Quit,
-        KeyCode::Char('c') | KeyCode::Char('q') if event.modifiers.contains(KeyModifiers::CONTROL) => {
+        KeyCode::Char('c') | KeyCode::Char('q')
+            if event.modifiers.contains(KeyModifiers::CONTROL) =>
+        {
             Message::ForceQuit
         }
+        KeyCode::Char('q') => Message::Quit,
         KeyCode::Tab | KeyCode::Char('j') | KeyCode::Down => Message::LoginSelectNext,
         KeyCode::BackTab | KeyCode::Char('k') | KeyCode::Up => Message::LoginSelectPrev,
         KeyCode::Enter => {
@@ -114,11 +142,7 @@ fn route_login_key(state: &AppState, event: KeyEvent) -> Message {
 }
 
 /// Route keys in the main screen
-fn route_main_key(
-    state: &AppState,
-    event: KeyEvent,
-    keybindings: &KeybindingConfig,
-) -> Message {
+fn route_main_key(state: &AppState, event: KeyEvent, keybindings: &KeybindingConfig) -> Message {
     // Check for mapped actions first
     if let Some(action) = keybindings.get_action(event) {
         return action_to_message(state, action);
@@ -168,9 +192,7 @@ fn action_to_message(state: &AppState, action: KeyAction) -> Message {
             }
         }
         KeyAction::Search => Message::OpenSearch,
-        KeyAction::NewItem => {
-            Message::OpenFloatingWindow(FloatingWindow::new_kind_selector())
-        }
+        KeyAction::NewItem => Message::OpenFloatingWindow(FloatingWindow::new_kind_selector()),
         KeyAction::EditItem => {
             if let Some(item) = state.selected_item() {
                 Message::OpenFloatingWindow(FloatingWindow::edit_item_form(item))
@@ -179,7 +201,11 @@ fn action_to_message(state: &AppState, action: KeyAction) -> Message {
             }
         }
         KeyAction::DeleteItem => {
-            if let Some(id) = state.vault_state.as_ref().and_then(|vs| vs.selected_item_id) {
+            if let Some(id) = state
+                .vault_state
+                .as_ref()
+                .and_then(|vs| vs.selected_item_id)
+            {
                 Message::DeleteItem(id)
             } else {
                 Message::Noop
@@ -188,7 +214,11 @@ fn action_to_message(state: &AppState, action: KeyAction) -> Message {
         KeyAction::CopyContent => Message::CopyCurrentItem,
         KeyAction::ToggleReveal => Message::ToggleContentReveal,
         KeyAction::ToggleFavorite => {
-            if let Some(id) = state.vault_state.as_ref().and_then(|vs| vs.selected_item_id) {
+            if let Some(id) = state
+                .vault_state
+                .as_ref()
+                .and_then(|vs| vs.selected_item_id)
+            {
                 Message::ToggleFavorite(id)
             } else {
                 Message::Noop
@@ -196,10 +226,10 @@ fn action_to_message(state: &AppState, action: KeyAction) -> Message {
         }
         KeyAction::Save => Message::SaveVault,
         KeyAction::Export => {
-            // Quick export to JSON in current directory
-            let path = std::path::PathBuf::from("vault_export.json");
+            // Secure-by-default quick export
+            let path = std::path::PathBuf::from("vault_export.vault");
             Message::ExportVault {
-                format: crate::app::ExportFormat::Json,
+                format: crate::app::ExportFormat::EncryptedJson,
                 path,
             }
         }
@@ -239,7 +269,7 @@ fn action_to_message(state: &AppState, action: KeyAction) -> Message {
 
 /// Route keys in floating windows
 fn route_floating_window_key(
-    state: &AppState,
+    _state: &AppState,
     event: KeyEvent,
     window: &FloatingWindow,
 ) -> Message {
@@ -271,8 +301,12 @@ fn route_search_key(event: KeyEvent) -> Message {
         KeyCode::Esc => Message::CloseSearch,
         KeyCode::Down | KeyCode::Tab => Message::SearchNextResult,
         KeyCode::Up | KeyCode::BackTab => Message::SearchPrevResult,
-        KeyCode::Char('n') if event.modifiers.contains(KeyModifiers::CONTROL) => Message::SearchNextResult,
-        KeyCode::Char('p') if event.modifiers.contains(KeyModifiers::CONTROL) => Message::SearchPrevResult,
+        KeyCode::Char('n') if event.modifiers.contains(KeyModifiers::CONTROL) => {
+            Message::SearchNextResult
+        }
+        KeyCode::Char('p') if event.modifiers.contains(KeyModifiers::CONTROL) => {
+            Message::SearchPrevResult
+        }
         _ => Message::Noop,
     }
 }
@@ -408,24 +442,31 @@ fn route_mouse_event(state: &AppState, event: MouseEvent) -> Message {
 
             let click_x = event.column;
             let click_y = event.row;
-            
+
             // First, check for clickable elements (most specific)
-            if let Some(element) = state.ui_state.layout_regions.find_clickable(click_x, click_y) {
+            if let Some(element) = state
+                .ui_state
+                .layout_regions
+                .find_clickable(click_x, click_y)
+            {
                 // Register click and check for double-click
-                let is_double_click = state.ui_state.layout_regions.register_click(click_x, click_y);
+                let is_double_click = state
+                    .ui_state
+                    .layout_regions
+                    .register_click(click_x, click_y);
                 return handle_clickable_element(state, element, click_x, click_y, is_double_click);
             }
-            
+
             // Fall back to region-based handling
             if let Some(region) = state.ui_state.layout_regions.find_region(click_x, click_y) {
                 return handle_click_in_region(state, region, click_x, click_y);
             }
-            
+
             // Click outside any known region - check if we should close floating window
             if state.ui_state.floating_window.is_some() {
                 return Message::CloseFloatingWindow;
             }
-            
+
             Message::Noop
         }
         _ => Message::Noop,
@@ -441,7 +482,7 @@ fn handle_clickable_element(
     is_double_click: bool,
 ) -> Message {
     use crate::input::mouse::ClickableElement;
-    
+
     match element {
         ClickableElement::VaultEntry(index) => {
             // On login screen, clicking a vault entry selects it
@@ -456,27 +497,27 @@ fn handle_clickable_element(
                 Message::LoginSelectVault(*index)
             }
         }
-        
+
         ClickableElement::ListItem(uuid) => {
             // In main screen, clicking an item selects it
             Message::SelectItem(*uuid)
         }
-        
+
         ClickableElement::FormField(index) => {
             // Clicking a form field focuses it
             Message::FormFocusField(*index)
         }
-        
+
         ClickableElement::KindOption(index) => {
             // Clicking a kind option selects it
             Message::KindSelectorSelect(*index)
         }
-        
+
         ClickableElement::SearchResult(index) => {
             // Clicking a search result selects it
             Message::SelectSearchResult(*index)
         }
-        
+
         ClickableElement::Button(action) => {
             // Handle button clicks by action name
             match action.as_str() {
@@ -486,7 +527,7 @@ fn handle_clickable_element(
                 "delete-vault" => Message::DeleteSelectedVault,
                 "quit" => Message::Quit,
                 "unlock" => Message::InputSubmit, // Trigger unlock attempt
-                "back" => Message::CancelInput, // Fixed: was InputCancel, now CancelInput
+                "back" => Message::CancelInput,   // Fixed: was InputCancel, now CancelInput
                 "prev-step" => Message::LoginPrevStep, // Go back in vault creation
                 "save-vault" => Message::InputSubmit, // Trigger vault creation
                 "cancel" => {
@@ -497,14 +538,14 @@ fn handle_clickable_element(
                         Message::InputCancel
                     }
                 }
-                
+
                 // Item detail buttons
                 "reveal" => Message::ToggleContentReveal,
                 "copy" => Message::CopyCurrentItem,
                 "edit" => {
                     if let Some(item) = state.selected_item() {
                         Message::OpenFloatingWindow(
-                            crate::app::state::FloatingWindow::edit_item_form(item)
+                            crate::app::state::FloatingWindow::edit_item_form(item),
                         )
                     } else {
                         Message::Noop
@@ -512,36 +553,38 @@ fn handle_clickable_element(
                 }
                 "delete" => {
                     if let Some(item) = state.selected_item() {
-                        Message::ConfirmDeleteItem(item.id)
+                        Message::DeleteItem(item.id)
                     } else {
                         Message::Noop
                     }
                 }
-                
+
                 // Form buttons
                 "form-save" => Message::FormSubmit,
                 "form-cancel" => Message::CloseFloatingWindow,
-                
+
                 // Confirm delete buttons
                 "confirm-delete" => {
                     // Get item ID from confirm delete window
-                    if let Some(crate::app::state::FloatingWindow::ConfirmDelete { item_id }) = &state.ui_state.floating_window {
-                        Message::DeleteItem(*item_id)
+                    if let Some(crate::app::state::FloatingWindow::ConfirmDelete { item_id }) =
+                        &state.ui_state.floating_window
+                    {
+                        Message::ConfirmDeleteItem(*item_id)
                     } else {
                         Message::Noop
                     }
                 }
                 "cancel-delete" => Message::CloseFloatingWindow,
-                
+
                 // Legacy buttons
                 "submit" | "save" => Message::FormSubmit,
                 "confirm" => Message::InputSubmit,
                 "enter_password" => Message::EnterPasswordMode,
-                
+
                 _ => Message::Noop,
             }
         }
-        
+
         ClickableElement::CloseArea => {
             // Clicking close area closes the floating window
             Message::CloseFloatingWindow
@@ -557,7 +600,7 @@ fn handle_click_in_region(
     _y: u16,
 ) -> Message {
     use crate::input::mouse::UiRegion;
-    
+
     match state.screen {
         Screen::Login => {
             // Clicks in login screen handled by clickable elements now
@@ -588,7 +631,11 @@ fn handle_click_in_region(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::{AppMode, FloatingWindow, Screen, VaultState};
+    use crate::domain::{Item, Vault};
+    use crate::input::mouse::ClickableElement;
     use crate::storage::{AppConfig, VaultRegistry};
+    use std::path::PathBuf;
 
     fn test_state() -> AppState {
         let config = AppConfig::default();
@@ -599,33 +646,98 @@ mod tests {
     #[test]
     fn test_login_routing() {
         let mut state = test_state();
-        
+
         // Test vault selection mode (default) - 'a' should be ignored, 'n' should start create
         let event = KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE);
         let msg = route_key_event(&state, event, &KeybindingConfig::default());
         assert!(matches!(msg, Message::Noop));
-        
+
         let event = KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE);
         let msg = route_key_event(&state, event, &KeybindingConfig::default());
         assert!(matches!(msg, Message::StartCreateVault));
-        
+
         // Now test password entry mode - 'a' should be input
         state.login_screen.entering_password = true;
         let event = KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE);
         let msg = route_key_event(&state, event, &KeybindingConfig::default());
         assert!(matches!(msg, Message::InputChar('a')));
-        
+
+        let event = KeyEvent::new(KeyCode::Char('b'), KeyModifiers::NONE);
+        let msg = route_key_event(&state, event, &KeybindingConfig::default());
+        assert!(matches!(msg, Message::InputChar('b')));
+
         let event = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
         let msg = route_key_event(&state, event, &KeybindingConfig::default());
         assert!(matches!(msg, Message::InputSubmit));
+
+        let event = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
+        let msg = route_key_event(&state, event, &KeybindingConfig::default());
+        assert!(matches!(msg, Message::CancelInput));
     }
 
     #[test]
     fn test_force_quit() {
         let state = test_state();
-        
+
         let event = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
         let msg = route_key_event(&state, event, &KeybindingConfig::default());
         assert!(matches!(msg, Message::ForceQuit));
+
+        let event = KeyEvent::new(KeyCode::Char('q'), KeyModifiers::CONTROL);
+        let msg = route_key_event(&state, event, &KeybindingConfig::default());
+        assert!(matches!(msg, Message::ForceQuit));
+    }
+
+    #[test]
+    fn test_keyfile_path_mode_accepts_text_input() {
+        let mut state = test_state();
+        state.login_screen.entering_keyfile_path = true;
+
+        let event = KeyEvent::new(KeyCode::Char('b'), KeyModifiers::NONE);
+        let msg = route_key_event(&state, event, &KeybindingConfig::default());
+        assert!(matches!(msg, Message::InputChar('b')));
+
+        let event = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
+        let msg = route_key_event(&state, event, &KeybindingConfig::default());
+        assert!(matches!(msg, Message::CancelInput));
+    }
+
+    #[test]
+    fn test_delete_button_and_confirm_button_mapping() {
+        let mut state = test_state();
+        let mut vault = Vault::new("Test");
+        let item = Item::password("GitHub", "secret123");
+        let item_id = item.id;
+        vault.add_item(item);
+
+        state.vault_state = Some(VaultState::new(
+            vault,
+            PathBuf::from("/tmp/test.vault"),
+            [0u8; 32],
+            [0u8; 32],
+            false,
+        ));
+        state.vault_state.as_mut().unwrap().selected_item_id = Some(item_id);
+        state.mode = AppMode::Unlocked;
+        state.screen = Screen::Main;
+
+        let msg = handle_clickable_element(
+            &state,
+            &ClickableElement::Button("delete".to_string()),
+            0,
+            0,
+            false,
+        );
+        assert!(matches!(msg, Message::DeleteItem(id) if id == item_id));
+
+        state.ui_state.floating_window = Some(FloatingWindow::ConfirmDelete { item_id });
+        let msg = handle_clickable_element(
+            &state,
+            &ClickableElement::Button("confirm-delete".to_string()),
+            0,
+            0,
+            false,
+        );
+        assert!(matches!(msg, Message::ConfirmDeleteItem(id) if id == item_id));
     }
 }

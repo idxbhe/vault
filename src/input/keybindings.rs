@@ -103,7 +103,7 @@ impl Default for KeybindingConfig {
         bindings.insert(KeyCombo::plain(KeyCode::Up), KeyAction::MoveUp);
         bindings.insert(KeyCombo::plain(KeyCode::Left), KeyAction::MoveLeft);
         bindings.insert(KeyCombo::plain(KeyCode::Right), KeyAction::MoveRight);
-        
+
         // Jump navigation
         bindings.insert(KeyCombo::plain(KeyCode::Char('g')), KeyAction::JumpToTop);
         bindings.insert(KeyCombo::shift(KeyCode::Char('G')), KeyAction::JumpToBottom);
@@ -121,7 +121,10 @@ impl Default for KeybindingConfig {
         bindings.insert(KeyCombo::plain(KeyCode::Char('d')), KeyAction::DeleteItem);
         bindings.insert(KeyCombo::plain(KeyCode::Char('y')), KeyAction::CopyContent);
         bindings.insert(KeyCombo::plain(KeyCode::Char('r')), KeyAction::ToggleReveal);
-        bindings.insert(KeyCombo::plain(KeyCode::Char('f')), KeyAction::ToggleFavorite);
+        bindings.insert(
+            KeyCombo::plain(KeyCode::Char('f')),
+            KeyAction::ToggleFavorite,
+        );
         bindings.insert(KeyCombo::ctrl(KeyCode::Char('s')), KeyAction::Save);
         bindings.insert(KeyCombo::ctrl(KeyCode::Char('e')), KeyAction::Export);
 

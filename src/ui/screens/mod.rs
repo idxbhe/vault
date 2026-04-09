@@ -7,9 +7,9 @@ pub mod login;
 pub mod main;
 pub mod settings;
 
-pub use export::{render as render_export, ExportFormat, ExportScreen, ExportStatus};
-pub use login::{render as render_login, LoginScreen};
-pub use main::{render as render_main, MainScreen};
+pub use export::{ExportFormat, ExportScreen, ExportStatus, render as render_export};
+pub use login::{LoginScreen, render as render_login};
+pub use main::{MainScreen, render as render_main};
 pub use settings::{
-    apply_setting, get_current_sub_index, render as render_settings, SettingKind, SettingsScreen,
+    SettingKind, SettingsScreen, apply_setting, get_current_sub_index, render as render_settings,
 };

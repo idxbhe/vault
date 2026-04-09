@@ -7,7 +7,7 @@ use std::io::{Read, Write};
 use std::path::Path;
 use uuid::Uuid;
 
-use crate::crypto::{decrypt, encrypt, Argon2Params, EncryptedPayload, SecureString};
+use crate::crypto::{Argon2Params, EncryptedPayload, SecureString, decrypt, encrypt};
 use crate::crypto::{derive_key, generate_salt};
 use crate::domain::Vault;
 use crate::utils::error::{Error, Result};
@@ -17,6 +17,8 @@ pub const VAULT_MAGIC: &[u8; 4] = b"VALT";
 
 /// Current file format version
 pub const VAULT_VERSION: u16 = 1;
+const MAX_HEADER_SIZE: usize = 64 * 1024;
+const MAX_PAYLOAD_SIZE: usize = 16 * 1024 * 1024;
 
 /// Vault file header (stored unencrypted)
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -64,11 +66,7 @@ pub struct VaultFile {
 
 impl VaultFile {
     /// Create a new vault file from a vault
-    pub fn new(
-        vault: &Vault,
-        password: &SecureString,
-        keyfile: Option<&[u8]>,
-    ) -> Result<Self> {
+    pub fn new(vault: &Vault, password: &SecureString, keyfile: Option<&[u8]>) -> Result<Self> {
         Self::new_with_params(vault, password, keyfile, Argon2Params::default())
     }
 
@@ -99,8 +97,13 @@ impl VaultFile {
 
     /// Create a vault file using an existing derived key
     /// Used for re-saving after edits without re-deriving from password
-    pub fn new_with_key(vault: Vault, key: &[u8; 32], salt: &[u8; 32]) -> Result<Self> {
-        let salt = *salt;  // Use provided salt instead of generating new one
+    pub fn new_with_key(
+        vault: Vault,
+        key: &[u8; 32],
+        salt: &[u8; 32],
+        has_keyfile: bool,
+    ) -> Result<Self> {
+        let salt = *salt; // Use provided salt instead of generating new one
         let params = Argon2Params::default();
 
         // Serialize the vault
@@ -110,8 +113,7 @@ impl VaultFile {
         // Encrypt the vault data
         let encrypted_payload = encrypt(&vault_bytes, key, salt, params)?;
 
-        // We don't know if keyfile was used - header tracks that from original creation
-        let header = VaultFileHeader::from_vault(&vault, false);
+        let header = VaultFileHeader::from_vault(&vault, has_keyfile);
 
         Ok(Self {
             header,
@@ -120,11 +122,7 @@ impl VaultFile {
     }
 
     /// Decrypt and return the vault
-    pub fn decrypt(
-        &self,
-        password: &SecureString,
-        keyfile: Option<&[u8]>,
-    ) -> Result<Vault> {
+    pub fn decrypt(&self, password: &SecureString, keyfile: Option<&[u8]>) -> Result<Vault> {
         let key = derive_key(
             password,
             keyfile,
@@ -134,8 +132,7 @@ impl VaultFile {
 
         let vault_bytes = decrypt(&self.encrypted_payload, &key)?;
 
-        bincode::deserialize(&vault_bytes)
-            .map_err(|_| Error::Decryption)
+        bincode::deserialize(&vault_bytes).map_err(|_| Error::Decryption)
     }
 
     /// Decrypt and return the vault with the derived key
@@ -154,8 +151,7 @@ impl VaultFile {
 
         let vault_bytes = decrypt(&self.encrypted_payload, &key)?;
 
-        let vault: Vault = bincode::deserialize(&vault_bytes)
-            .map_err(|_| Error::Decryption)?;
+        let vault: Vault = bincode::deserialize(&vault_bytes).map_err(|_| Error::Decryption)?;
 
         Ok((vault, key))
     }
@@ -163,8 +159,7 @@ impl VaultFile {
     /// Read a vault file from disk
     pub fn read<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path = path.as_ref();
-        let mut file = fs::File::open(path)
-            .map_err(|e| Error::FileRead(path.to_path_buf(), e))?;
+        let mut file = fs::File::open(path).map_err(|e| Error::FileRead(path.to_path_buf(), e))?;
 
         // Read and verify magic
         let mut magic = [0u8; 4];
@@ -193,6 +188,12 @@ impl VaultFile {
         file.read_exact(&mut header_len_bytes)
             .map_err(|e| Error::FileRead(path.to_path_buf(), e))?;
         let header_len = u32::from_le_bytes(header_len_bytes) as usize;
+        if header_len > MAX_HEADER_SIZE {
+            return Err(Error::InvalidVaultFormat(format!(
+                "Header too large: {} bytes",
+                header_len
+            )));
+        }
 
         // Read header
         let mut header_bytes = vec![0u8; header_len];
@@ -206,6 +207,12 @@ impl VaultFile {
         file.read_exact(&mut payload_len_bytes)
             .map_err(|e| Error::FileRead(path.to_path_buf(), e))?;
         let payload_len = u32::from_le_bytes(payload_len_bytes) as usize;
+        if payload_len > MAX_PAYLOAD_SIZE {
+            return Err(Error::InvalidVaultFormat(format!(
+                "Payload too large: {} bytes",
+                payload_len
+            )));
+        }
 
         // Read encrypted payload
         let mut payload_bytes = vec![0u8; payload_len];
@@ -226,42 +233,89 @@ impl VaultFile {
 
         // Ensure parent directory exists
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|e| Error::FileWrite(path.to_path_buf(), e))?;
+            fs::create_dir_all(parent).map_err(|e| Error::FileWrite(path.to_path_buf(), e))?;
         }
 
-        let mut file = fs::File::create(path)
-            .map_err(|e| Error::FileWrite(path.to_path_buf(), e))?;
-
-        // Write magic
-        file.write_all(VAULT_MAGIC)
-            .map_err(|e| Error::FileWrite(path.to_path_buf(), e))?;
-
-        // Write version
-        file.write_all(&VAULT_VERSION.to_le_bytes())
-            .map_err(|e| Error::FileWrite(path.to_path_buf(), e))?;
-
-        // Serialize and write header
+        // Serialize once so the write path is a single atomic file replace.
         let header_bytes = bincode::serialize(&self.header)
             .map_err(|e| Error::Encryption(format!("Header serialization failed: {}", e)))?;
-        file.write_all(&(header_bytes.len() as u32).to_le_bytes())
-            .map_err(|e| Error::FileWrite(path.to_path_buf(), e))?;
-        file.write_all(&header_bytes)
-            .map_err(|e| Error::FileWrite(path.to_path_buf(), e))?;
-
-        // Serialize and write encrypted payload
         let payload_bytes = bincode::serialize(&self.encrypted_payload)
             .map_err(|e| Error::Encryption(format!("Payload serialization failed: {}", e)))?;
-        file.write_all(&(payload_bytes.len() as u32).to_le_bytes())
-            .map_err(|e| Error::FileWrite(path.to_path_buf(), e))?;
-        file.write_all(&payload_bytes)
-            .map_err(|e| Error::FileWrite(path.to_path_buf(), e))?;
 
-        file.sync_all()
-            .map_err(|e| Error::FileWrite(path.to_path_buf(), e))?;
+        let parent = path.parent().unwrap_or_else(|| Path::new("."));
+        let tmp_name = format!(
+            ".{}.{}.tmp",
+            path.file_name().and_then(|n| n.to_str()).unwrap_or("vault"),
+            Uuid::new_v4()
+        );
+        let tmp_path = parent.join(tmp_name);
+
+        let mut file = create_secure_file(&tmp_path)?;
+
+        let write_result = (|| {
+            file.write_all(VAULT_MAGIC)
+                .map_err(|e| Error::FileWrite(path.to_path_buf(), e))?;
+
+            file.write_all(&VAULT_VERSION.to_le_bytes())
+                .map_err(|e| Error::FileWrite(path.to_path_buf(), e))?;
+
+            file.write_all(&(header_bytes.len() as u32).to_le_bytes())
+                .map_err(|e| Error::FileWrite(path.to_path_buf(), e))?;
+            file.write_all(&header_bytes)
+                .map_err(|e| Error::FileWrite(path.to_path_buf(), e))?;
+
+            file.write_all(&(payload_bytes.len() as u32).to_le_bytes())
+                .map_err(|e| Error::FileWrite(path.to_path_buf(), e))?;
+            file.write_all(&payload_bytes)
+                .map_err(|e| Error::FileWrite(path.to_path_buf(), e))?;
+
+            file.sync_all()
+                .map_err(|e| Error::FileWrite(path.to_path_buf(), e))
+        })();
+
+        if let Err(e) = write_result {
+            let _ = fs::remove_file(&tmp_path);
+            return Err(e);
+        }
+
+        drop(file);
+
+        fs::rename(&tmp_path, path).map_err(|e| Error::FileWrite(path.to_path_buf(), e))?;
+        set_secure_permissions(path)?;
 
         Ok(())
     }
+}
+
+fn create_secure_file(path: &Path) -> Result<fs::File> {
+    #[cfg(unix)]
+    {
+        use std::fs::OpenOptions;
+        use std::os::unix::fs::OpenOptionsExt;
+
+        OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(path)
+            .map_err(|e| Error::FileWrite(path.to_path_buf(), e))
+    }
+
+    #[cfg(not(unix))]
+    {
+        fs::File::create(path).map_err(|e| Error::FileWrite(path.to_path_buf(), e))
+    }
+}
+
+fn set_secure_permissions(path: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o600))
+            .map_err(|e| Error::FileWrite(path.to_path_buf(), e))?;
+    }
+
+    Ok(())
 }
 
 /// Quick function to read only the header (for registry updates)
@@ -404,5 +458,70 @@ mod tests {
         fs::write(&path, b"FAKE").unwrap();
 
         assert!(VaultFile::read(&path).is_err());
+    }
+
+    #[test]
+    fn test_new_with_key_preserves_keyfile_flag() {
+        let vault = Vault::new("Has Keyfile");
+        let key = [7u8; 32];
+        let salt = [9u8; 32];
+
+        let with_keyfile = VaultFile::new_with_key(vault.clone(), &key, &salt, true).unwrap();
+        assert!(with_keyfile.header.has_keyfile);
+
+        let without_keyfile = VaultFile::new_with_key(vault, &key, &salt, false).unwrap();
+        assert!(!without_keyfile.header.has_keyfile);
+    }
+
+    #[test]
+    fn test_read_rejects_oversized_header() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("oversized-header.vault");
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(VAULT_MAGIC);
+        bytes.extend_from_slice(&VAULT_VERSION.to_le_bytes());
+        bytes.extend_from_slice(&((MAX_HEADER_SIZE as u32) + 1).to_le_bytes());
+        fs::write(&path, bytes).unwrap();
+
+        assert!(matches!(
+            VaultFile::read(&path),
+            Err(Error::InvalidVaultFormat(msg)) if msg.contains("Header too large")
+        ));
+    }
+
+    #[test]
+    fn test_read_rejects_oversized_payload() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("oversized-payload.vault");
+        let header = VaultFileHeader::from_vault(&Vault::new("Payload Test"), false);
+        let header_bytes = bincode::serialize(&header).unwrap();
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(VAULT_MAGIC);
+        bytes.extend_from_slice(&VAULT_VERSION.to_le_bytes());
+        bytes.extend_from_slice(&(header_bytes.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(&header_bytes);
+        bytes.extend_from_slice(&((MAX_PAYLOAD_SIZE as u32) + 1).to_le_bytes());
+        fs::write(&path, bytes).unwrap();
+
+        assert!(matches!(
+            VaultFile::read(&path),
+            Err(Error::InvalidVaultFormat(msg)) if msg.contains("Payload too large")
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_vault_file_permissions_are_restricted() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("secure.vault");
+        let vault = Vault::new("Secure Vault");
+        let password = SecureString::from_str("password");
+
+        create_vault_fast(&path, &vault, &password, None).unwrap();
+
+        let mode = fs::metadata(path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
     }
 }

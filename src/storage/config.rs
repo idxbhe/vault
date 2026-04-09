@@ -2,7 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::PathBuf;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 
 use crate::utils::error::{Error, Result};
 
@@ -41,8 +42,8 @@ impl AppConfig {
     pub fn load() -> Result<Self> {
         let path = Self::config_path()?;
         if path.exists() {
-            let contents = fs::read_to_string(&path)
-                .map_err(|e| Error::FileRead(path.clone(), e))?;
+            let contents =
+                fs::read_to_string(&path).map_err(|e| Error::FileRead(path.clone(), e))?;
             let config: AppConfig = serde_json::from_str(&contents)?;
             Ok(config)
         } else {
@@ -53,16 +54,8 @@ impl AppConfig {
     /// Save configuration to the default path
     pub fn save(&self) -> Result<()> {
         let path = Self::config_path()?;
-        
-        // Ensure directory exists
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|e| Error::FileWrite(path.clone(), e))?;
-        }
-
         let contents = serde_json::to_string_pretty(self)?;
-        fs::write(&path, contents)
-            .map_err(|e| Error::FileWrite(path, e))
+        write_atomic_secure(&path, contents.as_bytes())
     }
 
     /// Get the configuration file path
@@ -83,6 +76,84 @@ impl AppConfig {
     pub fn load_or_default() -> Self {
         Self::load().unwrap_or_default()
     }
+}
+
+fn set_secure_permissions(path: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o600))
+            .map_err(|e| Error::FileWrite(path.to_path_buf(), e))?;
+    }
+
+    Ok(())
+}
+
+fn create_secure_file(path: &Path) -> Result<fs::File> {
+    #[cfg(unix)]
+    {
+        use std::fs::OpenOptions;
+        use std::os::unix::fs::OpenOptionsExt;
+
+        OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(path)
+            .map_err(|e| Error::FileWrite(path.to_path_buf(), e))
+    }
+
+    #[cfg(not(unix))]
+    {
+        fs::File::create(path).map_err(|e| Error::FileWrite(path.to_path_buf(), e))
+    }
+}
+
+fn sync_parent_dir(path: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        if let Some(parent) = path.parent() {
+            fs::File::open(parent)
+                .and_then(|dir| dir.sync_all())
+                .map_err(|e| Error::FileWrite(path.to_path_buf(), e))?;
+        }
+    }
+    Ok(())
+}
+
+fn write_atomic_secure(path: &Path, contents: &[u8]) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| Error::FileWrite(path.to_path_buf(), e))?;
+    }
+
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let tmp_name = format!(
+        ".{}.{}.tmp",
+        path.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("config"),
+        uuid::Uuid::new_v4()
+    );
+    let tmp_path = parent.join(tmp_name);
+
+    let mut file = create_secure_file(&tmp_path)?;
+    let write_result = (|| {
+        file.write_all(contents)
+            .map_err(|e| Error::FileWrite(path.to_path_buf(), e))?;
+        file.sync_all()
+            .map_err(|e| Error::FileWrite(path.to_path_buf(), e))
+    })();
+
+    if let Err(e) = write_result {
+        let _ = fs::remove_file(&tmp_path);
+        return Err(e);
+    }
+
+    drop(file);
+    fs::rename(&tmp_path, path).map_err(|e| Error::FileWrite(path.to_path_buf(), e))?;
+    set_secure_permissions(path)?;
+    sync_parent_dir(path)?;
+    Ok(())
 }
 
 /// Available theme choices
@@ -155,10 +226,7 @@ mod tests {
             ThemeChoice::CatppuccinMocha.display_name(),
             "Catppuccin Mocha"
         );
-        assert_eq!(
-            ThemeChoice::TokyoNightNight.display_name(),
-            "Tokyo Night"
-        );
+        assert_eq!(ThemeChoice::TokyoNightNight.display_name(), "Tokyo Night");
     }
 
     #[test]
@@ -173,8 +241,49 @@ mod tests {
         let config = AppConfig::default();
         let json = serde_json::to_string(&config).unwrap();
         let loaded: AppConfig = serde_json::from_str(&json).unwrap();
-        
+
         assert_eq!(config.theme, loaded.theme);
         assert_eq!(config.clipboard_timeout_secs, loaded.clipboard_timeout_secs);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_set_secure_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        std::fs::write(&path, "{}").unwrap();
+
+        set_secure_permissions(&path).unwrap();
+        let mode = std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+    }
+
+    #[test]
+    fn test_write_atomic_secure_writes_content() {
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        write_atomic_secure(&path, br#"{"theme":"catppuccin_mocha"}"#).unwrap();
+
+        let contents = std::fs::read_to_string(path).unwrap();
+        assert_eq!(contents, r#"{"theme":"catppuccin_mocha"}"#);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_write_atomic_secure_sets_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        write_atomic_secure(&path, b"{}").unwrap();
+
+        let mode = std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
     }
 }

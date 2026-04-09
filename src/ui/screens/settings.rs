@@ -3,11 +3,11 @@
 //! Allows users to configure application settings like theme, auto-lock, etc.
 
 use ratatui::{
+    Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, Clear, List, ListItem, ListState, Paragraph},
-    Frame,
 };
 
 use crate::app::AppState;
@@ -160,9 +160,7 @@ fn render_header(frame: &mut Frame, area: Rect, theme: &ThemePalette) {
         ),
         Span::styled(
             "Settings",
-            Style::default()
-                .fg(theme.fg)
-                .add_modifier(Modifier::BOLD),
+            Style::default().fg(theme.fg).add_modifier(Modifier::BOLD),
         ),
     ]))
     .alignment(Alignment::Center)
@@ -225,7 +223,12 @@ fn render_settings_list(
     frame.render_stateful_widget(list, area, &mut list_state);
 }
 
-fn render_footer(frame: &mut Frame, area: Rect, screen_state: &SettingsScreen, theme: &ThemePalette) {
+fn render_footer(
+    frame: &mut Frame,
+    area: Rect,
+    screen_state: &SettingsScreen,
+    theme: &ThemePalette,
+) {
     let hints = if screen_state.editing {
         "j/k: Select  Enter: Confirm  Esc: Cancel"
     } else {
@@ -333,7 +336,7 @@ fn get_setting_value(state: &AppState, setting: &SettingKind) -> String {
     }
 }
 
-fn get_setting_options(state: &AppState, setting: &SettingKind) -> Vec<String> {
+fn get_setting_options(_state: &AppState, setting: &SettingKind) -> Vec<String> {
     match setting {
         SettingKind::Theme => ThemeChoice::all()
             .iter()
@@ -367,12 +370,10 @@ pub fn get_current_sub_index(state: &AppState, setting_index: usize) -> usize {
     }
 
     match &settings[setting_index] {
-        SettingKind::Theme => {
-            ThemeChoice::all()
-                .iter()
-                .position(|t| *t == state.config.theme)
-                .unwrap_or(0)
-        }
+        SettingKind::Theme => ThemeChoice::all()
+            .iter()
+            .position(|t| *t == state.config.theme)
+            .unwrap_or(0),
         SettingKind::AutoLock => {
             if state.config.auto_lock_enabled {
                 0
@@ -394,24 +395,20 @@ pub fn get_current_sub_index(state: &AppState, setting_index: usize) -> usize {
                 1
             }
         }
-        SettingKind::AutoLockTimeout => {
-            match state.config.auto_lock_timeout_secs {
-                60 => 0,
-                120 => 1,
-                300 => 2,
-                600 => 3,
-                _ => 4,
-            }
-        }
-        SettingKind::ClipboardTimeout => {
-            match state.config.clipboard_timeout_secs {
-                10 => 0,
-                30 => 1,
-                60 => 2,
-                120 => 3,
-                _ => 4,
-            }
-        }
+        SettingKind::AutoLockTimeout => match state.config.auto_lock_timeout_secs {
+            60 => 0,
+            120 => 1,
+            300 => 2,
+            600 => 3,
+            _ => 4,
+        },
+        SettingKind::ClipboardTimeout => match state.config.clipboard_timeout_secs {
+            10 => 0,
+            30 => 1,
+            60 => 2,
+            120 => 3,
+            _ => 4,
+        },
     }
 }
 

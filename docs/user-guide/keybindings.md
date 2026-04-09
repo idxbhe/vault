@@ -62,7 +62,7 @@ Vault menggunakan keybinding bergaya Vim untuk navigasi cepat dan efisien. Semua
 | Tombol | Aksi | Deskripsi |
 |--------|------|-----------|
 | `Ctrl+s` | Simpan vault | Menyimpan semua perubahan ke file |
-| `Ctrl+e` | Export vault | Export vault ke JSON |
+| `Ctrl+e` | Export vault | Export vault terenkripsi (`.vault`) |
 | `Ctrl+l` | Lock vault | Mengunci vault dan kembali ke login |
 
 ## Pencarian

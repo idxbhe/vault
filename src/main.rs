@@ -10,13 +10,13 @@ use anyhow::Result;
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use ratatui::{backend::CrosstermBackend, Terminal};
-use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+use ratatui::{Terminal, backend::CrosstermBackend};
+use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
-use vault::app::{AppState, Message, Effect, EffectResult, NotificationLevel};
-use vault::input::{route_event, KeybindingConfig};
+use vault::app::{AppState, Effect, EffectResult, Message, NotificationLevel};
+use vault::input::{KeybindingConfig, route_event};
 use vault::storage::{AppConfig, VaultRegistry};
 use vault::ui::app::App;
 
@@ -120,12 +120,13 @@ fn run_app<B: ratatui::backend::Backend>(
         if last_tick.elapsed() >= TICK_RATE {
             let tick_effect = app.update(Message::Tick);
             if !matches!(tick_effect, Effect::None) {
-                let _ = runtime.execute(tick_effect);
+                let result = runtime.execute(tick_effect);
+                handle_effect_result(app, result);
             }
 
             // Check runtime timers
             runtime.tick();
-            
+
             // Advance spinner animation if loading
             app.state_mut().ui_state.tick_spinner();
 
@@ -140,42 +141,59 @@ fn handle_effect_result(app: &mut App, result: EffectResult) {
         EffectResult::Success => {
             tracing::debug!("Effect completed successfully");
         }
-        
-        EffectResult::VaultLoaded { vault, path, key, salt } => {
-            app.handle_vault_loaded(vault, path, key, salt);
+
+        EffectResult::VaultLoaded {
+            vault,
+            path,
+            key,
+            salt,
+            has_keyfile,
+        } => {
+            app.handle_vault_loaded(vault, path, key, salt, has_keyfile);
         }
-        
+
         EffectResult::VaultSaved => {
-            app.state_mut().ui_state.notify(
-                "Vault saved successfully!",
-                NotificationLevel::Success,
-            );
+            let pending_lock = {
+                let state = app.state_mut();
+                if let Some(vs) = state.vault_state.as_mut() {
+                    vs.is_dirty = false;
+                }
+                state.pending_lock
+            };
+
+            if pending_lock {
+                let _ = app.update(Message::LockVault);
+            } else {
+                app.state_mut()
+                    .ui_state
+                    .notify("Vault saved successfully!", NotificationLevel::Success);
+            }
             tracing::info!("Vault saved");
         }
-        
+
         EffectResult::ExportCompleted { path } => {
             app.state_mut().ui_state.notify(
-                &format!("Exported to {}", path.display()),
+                format!("Exported to {}", path.display()),
                 NotificationLevel::Success,
             );
             tracing::info!("Vault exported to {:?}", path);
         }
-        
+
         EffectResult::ConfigLoaded(config) => {
             app.state_mut().config = config;
             tracing::info!("Config loaded");
         }
-        
+
         EffectResult::RegistryLoaded(registry) => {
             app.state_mut().registry = registry;
             tracing::info!("Registry loaded");
         }
-        
+
         EffectResult::KeyfileLoaded { path, data: _ } => {
             tracing::info!("Keyfile loaded from {:?}", path);
             // Keyfile data will be used in vault unlock flow
         }
-        
+
         EffectResult::Error(error) => {
             app.handle_effect_error(error);
         }

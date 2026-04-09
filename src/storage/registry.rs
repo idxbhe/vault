@@ -3,6 +3,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use super::config::AppConfig;
@@ -62,8 +63,8 @@ impl VaultRegistry {
     pub fn load() -> Result<Self> {
         let path = Self::registry_path()?;
         if path.exists() {
-            let contents = fs::read_to_string(&path)
-                .map_err(|e| Error::FileRead(path.clone(), e))?;
+            let contents =
+                fs::read_to_string(&path).map_err(|e| Error::FileRead(path.clone(), e))?;
             let registry: VaultRegistry = serde_json::from_str(&contents)?;
             Ok(registry)
         } else {
@@ -74,15 +75,8 @@ impl VaultRegistry {
     /// Save the registry to disk
     pub fn save(&self) -> Result<()> {
         let path = Self::registry_path()?;
-
-        // Ensure directory exists
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|e| Error::FileWrite(path.clone(), e))?;
-        }
-
         let contents = serde_json::to_string_pretty(self)?;
-        fs::write(&path, contents).map_err(|e| Error::FileWrite(path, e))
+        write_atomic_secure(&path, contents.as_bytes())
     }
 
     /// Get the registry file path
@@ -120,7 +114,7 @@ impl VaultRegistry {
     /// Set a vault as default
     pub fn set_default(&mut self, path: impl AsRef<Path>) -> bool {
         let path = path.as_ref();
-        
+
         // Clear existing default
         for entry in &mut self.entries {
             entry.is_default = false;
@@ -160,6 +154,84 @@ impl VaultRegistry {
     }
 }
 
+fn set_secure_permissions(path: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o600))
+            .map_err(|e| Error::FileWrite(path.to_path_buf(), e))?;
+    }
+
+    Ok(())
+}
+
+fn create_secure_file(path: &Path) -> Result<fs::File> {
+    #[cfg(unix)]
+    {
+        use std::fs::OpenOptions;
+        use std::os::unix::fs::OpenOptionsExt;
+
+        OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(path)
+            .map_err(|e| Error::FileWrite(path.to_path_buf(), e))
+    }
+
+    #[cfg(not(unix))]
+    {
+        fs::File::create(path).map_err(|e| Error::FileWrite(path.to_path_buf(), e))
+    }
+}
+
+fn sync_parent_dir(path: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        if let Some(parent) = path.parent() {
+            fs::File::open(parent)
+                .and_then(|dir| dir.sync_all())
+                .map_err(|e| Error::FileWrite(path.to_path_buf(), e))?;
+        }
+    }
+    Ok(())
+}
+
+fn write_atomic_secure(path: &Path, contents: &[u8]) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| Error::FileWrite(path.to_path_buf(), e))?;
+    }
+
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let tmp_name = format!(
+        ".{}.{}.tmp",
+        path.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("registry"),
+        uuid::Uuid::new_v4()
+    );
+    let tmp_path = parent.join(tmp_name);
+
+    let mut file = create_secure_file(&tmp_path)?;
+    let write_result = (|| {
+        file.write_all(contents)
+            .map_err(|e| Error::FileWrite(path.to_path_buf(), e))?;
+        file.sync_all()
+            .map_err(|e| Error::FileWrite(path.to_path_buf(), e))
+    })();
+
+    if let Err(e) = write_result {
+        let _ = fs::remove_file(&tmp_path);
+        return Err(e);
+    }
+
+    drop(file);
+    fs::rename(&tmp_path, path).map_err(|e| Error::FileWrite(path.to_path_buf(), e))?;
+    set_secure_permissions(path)?;
+    sync_parent_dir(path)?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -167,7 +239,7 @@ mod tests {
     #[test]
     fn test_registry_entry() {
         let entry = VaultRegistryEntry::new("/path/to/vault.vault", "My Vault");
-        
+
         assert_eq!(entry.name, "My Vault");
         assert!(!entry.is_default);
     }
@@ -185,8 +257,11 @@ mod tests {
         // Update existing
         registry.add_or_update("/vault1.vault", "Updated Vault 1");
         assert_eq!(registry.len(), 2);
-        
-        let entry = registry.entries.iter().find(|e| e.path == PathBuf::from("/vault1.vault"));
+
+        let entry = registry
+            .entries
+            .iter()
+            .find(|e| e.path == PathBuf::from("/vault1.vault"));
         assert_eq!(entry.unwrap().name, "Updated Vault 1");
     }
 
@@ -213,7 +288,10 @@ mod tests {
         );
 
         // Old default should be unset
-        let v1 = registry.entries.iter().find(|e| e.path == PathBuf::from("/vault1.vault"));
+        let v1 = registry
+            .entries
+            .iter()
+            .find(|e| e.path == PathBuf::from("/vault1.vault"));
         assert!(!v1.unwrap().is_default);
     }
 
@@ -226,7 +304,7 @@ mod tests {
 
         assert!(registry.remove("/vault1.vault"));
         assert_eq!(registry.len(), 1);
-        
+
         assert!(!registry.remove("/nonexistent.vault"));
     }
 
@@ -241,5 +319,46 @@ mod tests {
         let sorted = registry.sorted_by_recent();
         assert_eq!(sorted[0].name, "New");
         assert_eq!(sorted[1].name, "Old");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_set_secure_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("registry.json");
+        std::fs::write(&path, "{}").unwrap();
+
+        set_secure_permissions(&path).unwrap();
+        let mode = std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+    }
+
+    #[test]
+    fn test_write_atomic_secure_writes_content() {
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("registry.json");
+        write_atomic_secure(&path, br#"{"entries":[]}"#).unwrap();
+
+        let contents = std::fs::read_to_string(path).unwrap();
+        assert_eq!(contents, r#"{"entries":[]}"#);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_write_atomic_secure_sets_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("registry.json");
+        write_atomic_secure(&path, b"{}").unwrap();
+
+        let mode = std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
     }
 }

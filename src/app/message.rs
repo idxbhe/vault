@@ -23,16 +23,7 @@ pub enum Message {
     FocusPane(Pane),
 
     // === Vault Operations ===
-    /// Create a new vault
-    CreateVault {
-        name: String,
-        path: PathBuf,
-        password: SecureString,
-        keyfile: Option<PathBuf>,
-    },
-    /// Open a vault file
-    OpenVault { path: PathBuf },
-    /// Unlock the currently loaded vault
+    /// Unlock the selected vault from login screen
     UnlockVault {
         password: SecureString,
         keyfile: Option<PathBuf>,
@@ -43,7 +34,7 @@ pub enum Message {
     SaveVault,
     /// Close vault and return to login
     CloseVault,
-    
+
     // === Login Flow ===
     /// Start creating a new vault
     StartCreateVault,
@@ -108,10 +99,7 @@ pub enum Message {
 
     // === Clipboard ===
     /// Copy content to clipboard
-    CopyToClipboard {
-        content: String,
-        is_sensitive: bool,
-    },
+    CopyToClipboard { content: String, is_sensitive: bool },
     /// Copy the current item's primary content
     CopyCurrentItem,
     /// Clear clipboard
@@ -329,9 +317,7 @@ mod tests {
 
     #[test]
     fn test_item_updates_builder() {
-        let updates = ItemUpdates::new()
-            .title("New Title")
-            .favorite(true);
+        let updates = ItemUpdates::new().title("New Title").favorite(true);
 
         assert_eq!(updates.title, Some("New Title".to_string()));
         assert_eq!(updates.favorite, Some(true));

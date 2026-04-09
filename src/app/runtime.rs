@@ -2,7 +2,7 @@
 //!
 //! Handles clipboard operations, file I/O, and timers.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
 use std::time::{Duration, Instant};
 
@@ -48,12 +48,13 @@ impl Runtime {
                 EffectResult::Success
             }
 
-            Effect::SetClipboard { content, is_sensitive: _ } => {
-                match set_clipboard(&content) {
-                    Ok(()) => EffectResult::Success,
-                    Err(e) => EffectResult::Error(e),
-                }
-            }
+            Effect::SetClipboard {
+                content,
+                is_sensitive: _,
+            } => match set_clipboard(&content) {
+                Ok(()) => EffectResult::Success,
+                Err(e) => EffectResult::Error(e),
+            },
 
             Effect::ClearClipboard => {
                 self.clipboard_clear_at = None;
@@ -78,19 +79,31 @@ impl Runtime {
                 EffectResult::Success
             }
 
-            Effect::ReadVaultFile { path, password, keyfile } => {
-                match read_vault_file(&path, &password, keyfile.as_deref()) {
-                    Ok((vault, key, salt)) => EffectResult::VaultLoaded { vault, path, key, salt },
-                    Err(e) => EffectResult::Error(e),
-                }
-            }
+            Effect::ReadVaultFile {
+                path,
+                password,
+                keyfile,
+            } => match read_vault_file(&path, &password, keyfile.as_deref()) {
+                Ok((vault, key, salt, has_keyfile)) => EffectResult::VaultLoaded {
+                    vault,
+                    path,
+                    key,
+                    salt,
+                    has_keyfile,
+                },
+                Err(e) => EffectResult::Error(e),
+            },
 
-            Effect::WriteVaultFile { path, vault, key, salt } => {
-                match write_vault_file(&path, &vault, &key, &salt) {
-                    Ok(()) => EffectResult::VaultSaved,
-                    Err(e) => EffectResult::Error(e),
-                }
-            }
+            Effect::WriteVaultFile {
+                path,
+                vault,
+                key,
+                salt,
+                has_keyfile,
+            } => match write_vault_file(&path, &vault, &key, &salt, has_keyfile) {
+                Ok(()) => EffectResult::VaultSaved,
+                Err(e) => EffectResult::Error(e),
+            },
 
             Effect::ReadConfig => {
                 let config = AppConfig::load_or_default();
@@ -102,27 +115,33 @@ impl Runtime {
                 EffectResult::Success
             }
 
-            Effect::UpdateRegistry => {
-                EffectResult::Success
-            }
+            Effect::UpdateRegistry => EffectResult::Success,
 
-            Effect::ReadKeyfile { path } => {
-                match std::fs::read(&path) {
-                    Ok(data) => EffectResult::KeyfileLoaded { path, data },
-                    Err(e) => EffectResult::Error(format!("Failed to read keyfile: {}", e)),
-                }
-            }
+            Effect::ReadKeyfile { path } => match std::fs::read(&path) {
+                Ok(data) => EffectResult::KeyfileLoaded { path, data },
+                Err(e) => EffectResult::Error(format!("Failed to read keyfile: {}", e)),
+            },
 
-            Effect::ExportVault { path, vault, encrypted, key } => {
-                match export_vault(&path, &vault, encrypted, key.as_ref()) {
-                    Ok(()) => EffectResult::ExportCompleted { path },
-                    Err(e) => EffectResult::Error(e),
-                }
-            }
+            Effect::ExportVault {
+                path,
+                vault,
+                encrypted,
+                key,
+                salt,
+                has_keyfile,
+            } => match export_vault(
+                &path,
+                &vault,
+                encrypted,
+                key.as_ref(),
+                salt.as_ref(),
+                has_keyfile,
+            ) {
+                Ok(()) => EffectResult::ExportCompleted { path },
+                Err(e) => EffectResult::Error(e),
+            },
 
-            Effect::Exit => {
-                EffectResult::Success
-            }
+            Effect::Exit => EffectResult::Success,
         }
     }
 
@@ -195,13 +214,13 @@ fn set_clipboard(content: &str) -> Result<(), String> {
     #[cfg(feature = "clipboard")]
     {
         use arboard::Clipboard;
-        let mut clipboard = Clipboard::new()
-            .map_err(|e| format!("Failed to access clipboard: {}", e))?;
+        let mut clipboard =
+            Clipboard::new().map_err(|e| format!("Failed to access clipboard: {}", e))?;
         clipboard
             .set_text(content)
             .map_err(|e| format!("Failed to set clipboard: {}", e))
     }
-    
+
     #[cfg(not(feature = "clipboard"))]
     {
         // Fallback for systems without clipboard support
@@ -215,13 +234,13 @@ fn clear_clipboard() -> Result<(), String> {
     #[cfg(feature = "clipboard")]
     {
         use arboard::Clipboard;
-        let mut clipboard = Clipboard::new()
-            .map_err(|e| format!("Failed to access clipboard: {}", e))?;
+        let mut clipboard =
+            Clipboard::new().map_err(|e| format!("Failed to access clipboard: {}", e))?;
         clipboard
             .set_text("")
             .map_err(|e| format!("Failed to clear clipboard: {}", e))
     }
-    
+
     #[cfg(not(feature = "clipboard"))]
     {
         Ok(())
@@ -233,44 +252,39 @@ fn read_vault_file(
     path: &PathBuf,
     password: &SecureString,
     keyfile: Option<&[u8]>,
-) -> Result<(Vault, [u8; 32], [u8; 32]), String> {
-    let vault_file = VaultFile::read(path)
-        .map_err(|e| {
-            match e {
-                crate::utils::error::Error::VaultNotFound(_) => {
-                    "Vault file not found".to_string()
-                }
-                crate::utils::error::Error::InvalidVaultFormat(_) => {
-                    "Invalid vault file format".to_string()
-                }
-                crate::utils::error::Error::FileRead(_, _) => {
-                    "Cannot read vault file - check permissions".to_string()
-                }
-                _ => format!("Failed to read vault: {}", e),
-            }
-        })?;
-    
+) -> Result<(Vault, [u8; 32], [u8; 32], bool), String> {
+    let vault_file = VaultFile::read(path).map_err(|e| match e {
+        crate::utils::error::Error::VaultNotFound(_) => "Vault file not found".to_string(),
+        crate::utils::error::Error::InvalidVaultFormat(_) => {
+            "Invalid vault file format".to_string()
+        }
+        crate::utils::error::Error::FileRead(_, _) => {
+            "Cannot read vault file - check permissions".to_string()
+        }
+        _ => format!("Failed to read vault: {}", e),
+    })?;
+
+    if vault_file.header.has_keyfile && keyfile.is_none() {
+        return Err("This vault requires a keyfile".to_string());
+    }
+
+    let has_keyfile = vault_file.header.has_keyfile;
+
     // Extract salt before consuming vault_file
     let salt = vault_file.encrypted_payload.salt;
-    
+
     let (vault, key) = vault_file
         .decrypt_with_key(password, keyfile)
-        .map_err(|e| {
-            match e {
-                crate::utils::error::Error::Decryption => {
-                    "Wrong password or corrupted vault".to_string()
-                }
-                crate::utils::error::Error::KeyDerivation(_) => {
-                    "Key derivation failed".to_string()
-                }
-                crate::utils::error::Error::InvalidKeyFile(_) => {
-                    "Invalid keyfile".to_string()
-                }
-                _ => format!("Failed to decrypt vault: {}", e),
+        .map_err(|e| match e {
+            crate::utils::error::Error::Decryption => {
+                "Wrong password or corrupted vault".to_string()
             }
+            crate::utils::error::Error::KeyDerivation(_) => "Key derivation failed".to_string(),
+            crate::utils::error::Error::InvalidKeyFile(_) => "Invalid keyfile".to_string(),
+            _ => format!("Failed to decrypt vault: {}", e),
         })?;
 
-    Ok((vault, key, salt))
+    Ok((vault, key, salt, has_keyfile))
 }
 
 /// Write vault to file (needs vault state, called externally)
@@ -279,8 +293,9 @@ pub fn write_vault_file(
     vault: &Vault,
     key: &[u8; 32],
     salt: &[u8; 32],
+    has_keyfile: bool,
 ) -> Result<(), String> {
-    let vault_file = VaultFile::new_with_key(vault.clone(), key, salt)
+    let vault_file = VaultFile::new_with_key(vault.clone(), key, salt, has_keyfile)
         .map_err(|e| format!("Failed to create vault file: {}", e))?;
     vault_file
         .write(path)
@@ -293,33 +308,116 @@ pub fn export_vault(
     vault: &Vault,
     encrypted: bool,
     key: Option<&[u8; 32]>,
+    salt: Option<&[u8; 32]>,
+    has_keyfile: bool,
 ) -> Result<(), String> {
-    use std::io::Write;
-
     if encrypted {
-        // Encrypted export - use the vault file format
         let key = key.ok_or("Encryption key required for encrypted export")?;
-        // TODO: Export function needs salt parameter for encrypted exports
-        return Err("Encrypted export temporarily disabled - needs salt fix".to_string());
+        let salt = salt.ok_or("Salt required for encrypted export")?;
+        let vault_file = VaultFile::new_with_key(vault.clone(), key, salt, has_keyfile)
+            .map_err(|e| format!("Failed to create encrypted export: {}", e))?;
+        vault_file
+            .write(path)
+            .map_err(|e| format!("Failed to write encrypted export: {}", e))
     } else {
-        // Plain JSON export (unencrypted - WARNING: exposes sensitive data!)
         let json = serde_json::to_string_pretty(vault)
             .map_err(|e| format!("Failed to serialize vault: {}", e))?;
-        
-        let mut file = std::fs::File::create(path)
-            .map_err(|e| format!("Failed to create export file: {}", e))?;
-        
-        file.write_all(json.as_bytes())
-            .map_err(|e| format!("Failed to write export: {}", e))?;
-        
-        Ok(())
+        write_plaintext_export_atomic(path, json.as_bytes())
     }
+}
+
+fn create_secure_file(path: &Path) -> Result<std::fs::File, String> {
+    #[cfg(unix)]
+    {
+        use std::fs::OpenOptions;
+        use std::os::unix::fs::OpenOptionsExt;
+
+        OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(path)
+            .map_err(|e| format!("Failed to create export file: {}", e))
+    }
+
+    #[cfg(not(unix))]
+    {
+        std::fs::File::create(path).map_err(|e| format!("Failed to create export file: {}", e))
+    }
+}
+
+fn set_secure_permissions(path: &Path) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+            .map_err(|e| format!("Failed to set export file permissions: {}", e))?;
+    }
+
+    Ok(())
+}
+
+fn sync_parent_dir(path: &Path) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        let parent = path
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        std::fs::File::open(parent)
+            .and_then(|dir| dir.sync_all())
+            .map_err(|e| format!("Failed to sync export directory: {}", e))?;
+    }
+    Ok(())
+}
+
+fn write_plaintext_export_atomic(path: &Path, contents: &[u8]) -> Result<(), String> {
+    use std::io::Write;
+
+    if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create export directory: {}", e))?;
+    }
+
+    let parent = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let tmp_name = format!(
+        ".{}.{}.tmp",
+        path.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("vault_export"),
+        uuid::Uuid::new_v4()
+    );
+    let tmp_path = parent.join(tmp_name);
+
+    let mut file = create_secure_file(&tmp_path)?;
+    let write_result = (|| {
+        file.write_all(contents)
+            .map_err(|e| format!("Failed to write export: {}", e))?;
+        file.sync_all()
+            .map_err(|e| format!("Failed to sync export: {}", e))
+    })();
+
+    if let Err(e) = write_result {
+        let _ = std::fs::remove_file(&tmp_path);
+        return Err(e);
+    }
+
+    drop(file);
+
+    std::fs::rename(&tmp_path, path).map_err(|e| format!("Failed to finalize export: {}", e))?;
+    set_secure_permissions(path)?;
+    sync_parent_dir(path)?;
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::sync::mpsc;
+    use tempfile::tempdir;
 
     #[test]
     fn test_runtime_creation() {
@@ -333,7 +431,7 @@ mod tests {
     fn test_schedule_clipboard_clear() {
         let (tx, _rx) = mpsc::channel();
         let mut runtime = Runtime::new(tx);
-        
+
         runtime.schedule_clipboard_clear(Duration::from_secs(10));
         assert!(runtime.clipboard_clear_at.is_some());
     }
@@ -342,10 +440,10 @@ mod tests {
     fn test_schedule_auto_lock() {
         let (tx, _rx) = mpsc::channel();
         let mut runtime = Runtime::new(tx);
-        
+
         runtime.schedule_auto_lock(Duration::from_secs(300));
         assert!(runtime.auto_lock_at.is_some());
-        
+
         runtime.cancel_auto_lock();
         assert!(runtime.auto_lock_at.is_none());
     }
@@ -354,11 +452,11 @@ mod tests {
     fn test_tick_delay() {
         let (tx, _rx) = mpsc::channel();
         let mut runtime = Runtime::new(tx);
-        
+
         // Default delay
         let delay = runtime.next_tick_delay();
         assert!(delay <= Duration::from_millis(100));
-        
+
         // With scheduled event
         runtime.schedule_clipboard_clear(Duration::from_millis(50));
         let delay = runtime.next_tick_delay();
@@ -369,8 +467,35 @@ mod tests {
     fn test_execute_none() {
         let (tx, _rx) = mpsc::channel();
         let mut runtime = Runtime::new(tx);
-        
+
         let result = runtime.execute(Effect::None);
         assert!(matches!(result, EffectResult::Success));
+    }
+
+    #[test]
+    fn test_plaintext_export_writes_file_atomically() {
+        let dir = tempdir().unwrap();
+        let export_path = dir.path().join("export.json");
+        let vault = Vault::new("Export Test");
+
+        export_vault(&export_path, &vault, false, None, None, false).expect("export succeeds");
+
+        let contents = std::fs::read_to_string(&export_path).expect("read export");
+        assert!(contents.contains("\"name\": \"Export Test\""));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_plaintext_export_permissions_are_restricted() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempdir().unwrap();
+        let export_path = dir.path().join("secure-export.json");
+        let vault = Vault::new("Secure Export");
+
+        export_vault(&export_path, &vault, false, None, None, false).expect("export succeeds");
+
+        let mode = std::fs::metadata(export_path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
     }
 }

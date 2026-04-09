@@ -3,11 +3,11 @@
 //! Shows keybinding help as a floating overlay.
 
 use ratatui::{
+    Frame,
     layout::{Alignment, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, Clear, Paragraph},
-    Frame,
 };
 
 use crate::ui::theme::ThemePalette;
@@ -86,22 +86,19 @@ pub fn render(frame: &mut Frame, area: Rect, theme: &ThemePalette) {
 
     // Render sections in columns
     let col_width = inner.width / 3;
-    let mut col = 0;
-    let mut y_offset = inner.y;
+    let y_offset = inner.y;
 
-    for section in sections {
-        let section_x = inner.x + (col * col_width);
+    for (col, section) in sections.into_iter().enumerate() {
+        let section_x = inner.x + (col as u16 * col_width);
         let section_width = col_width.saturating_sub(1);
 
         // Section title
-        let title = Paragraph::new(Line::from(vec![
-            Span::styled(
-                format!(" {} ", section.title),
-                Style::default()
-                    .fg(theme.primary)
-                    .add_modifier(Modifier::BOLD),
-            ),
-        ]));
+        let title = Paragraph::new(Line::from(vec![Span::styled(
+            format!(" {} ", section.title),
+            Style::default()
+                .fg(theme.primary)
+                .add_modifier(Modifier::BOLD),
+        )]));
         frame.render_widget(title, Rect::new(section_x, y_offset, section_width, 1));
 
         // Keybindings
@@ -121,42 +118,28 @@ pub fn render(frame: &mut Frame, area: Rect, theme: &ThemePalette) {
                 Span::styled(desc.to_string(), Style::default().fg(theme.fg_muted)),
             ]));
 
-            frame.render_widget(
-                binding,
-                Rect::new(section_x, binding_y, section_width, 1),
-            );
+            frame.render_widget(binding, Rect::new(section_x, binding_y, section_width, 1));
         }
-
-        col += 1;
     }
 
     // Footer
     let footer_y = help_area.y + help_area.height - 2;
     let footer = Paragraph::new(Line::from(vec![
-        Span::styled(
-            " Press ",
-            Style::default().fg(theme.fg_muted),
-        ),
+        Span::styled(" Press ", Style::default().fg(theme.fg_muted)),
         Span::styled(
             "Esc",
             Style::default()
                 .fg(theme.accent)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::styled(
-            " or ",
-            Style::default().fg(theme.fg_muted),
-        ),
+        Span::styled(" or ", Style::default().fg(theme.fg_muted)),
         Span::styled(
             "?",
             Style::default()
                 .fg(theme.accent)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::styled(
-            " to close ",
-            Style::default().fg(theme.fg_muted),
-        ),
+        Span::styled(" to close ", Style::default().fg(theme.fg_muted)),
     ]))
     .alignment(Alignment::Center);
 

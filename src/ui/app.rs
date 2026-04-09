@@ -6,12 +6,12 @@ use std::path::PathBuf;
 
 use ratatui::Frame;
 
-use crate::app::{update, AppMode, AppState, Effect, Message, Screen, VaultState};
 use crate::app::state::NotificationLevel;
+use crate::app::{AppMode, AppState, Effect, Message, Screen, VaultState, update};
 use crate::domain::Vault;
 use crate::ui::screens::{
-    render_export, render_login, render_main, render_settings, ExportScreen, LoginScreen,
-    MainScreen, SettingsScreen,
+    ExportScreen, LoginScreen, MainScreen, SettingsScreen, render_export, render_login,
+    render_main, render_settings,
 };
 use crate::ui::theme::get_theme;
 
@@ -101,62 +101,89 @@ impl App {
     }
 
     /// Handle successful vault load from effect
-    pub fn handle_vault_loaded(&mut self, vault: Vault, path: PathBuf, key: [u8; 32], salt: [u8; 32]) {
+    pub fn handle_vault_loaded(
+        &mut self,
+        vault: Vault,
+        path: PathBuf,
+        key: [u8; 32],
+        salt: [u8; 32],
+        has_keyfile: bool,
+    ) {
         // Stop loading indicator
         self.state.ui_state.stop_loading();
-        
+
         // Create vault state with salt
-        let vault_state = VaultState::new(vault, path.clone(), key, salt);
-        
+        let vault_state = VaultState::new(vault, path.clone(), key, salt, has_keyfile);
+
         // Update app state
         self.state.vault_state = Some(vault_state);
         self.state.mode = AppMode::Unlocked;
         self.state.screen = Screen::Main;
-        
+        self.state.pending_lock = false;
+
         // Reset login screen state
         self.state.login_screen.entering_password = false;
+        self.state.login_screen.entering_keyfile_path = false;
         self.state.login_screen.creating_vault = false;
+        self.state.login_screen.pending_unlock_password = None;
         self.state.login_screen.error_message = None;
         self.state.ui_state.input_buffer.clear();
-        
+
         // Show success notification
-        self.state.ui_state.notify("Vault unlocked successfully", NotificationLevel::Success);
+        self.state
+            .ui_state
+            .notify("Vault unlocked successfully", NotificationLevel::Success);
     }
 
     /// Handle vault creation success
-    pub fn handle_vault_created(&mut self, vault: Vault, path: PathBuf, key: [u8; 32], salt: [u8; 32]) {
+    pub fn handle_vault_created(
+        &mut self,
+        vault: Vault,
+        path: PathBuf,
+        key: [u8; 32],
+        salt: [u8; 32],
+        has_keyfile: bool,
+    ) {
         // Stop loading indicator
         self.state.ui_state.stop_loading();
-        
+
         // Same as loaded, but with different message
-        let vault_state = VaultState::new(vault, path.clone(), key, salt);
-        
+        let vault_state = VaultState::new(vault, path.clone(), key, salt, has_keyfile);
+
         self.state.vault_state = Some(vault_state);
         self.state.mode = AppMode::Unlocked;
         self.state.screen = Screen::Main;
-        
+        self.state.pending_lock = false;
+
         // Reset login screen state
         self.state.login_screen.entering_password = false;
+        self.state.login_screen.entering_keyfile_path = false;
         self.state.login_screen.creating_vault = false;
+        self.state.login_screen.pending_unlock_password = None;
         self.state.login_screen.error_message = None;
         self.state.ui_state.input_buffer.clear();
-        
-        self.state.ui_state.notify("Vault created successfully", NotificationLevel::Success);
+
+        self.state
+            .ui_state
+            .notify("Vault created successfully", NotificationLevel::Success);
     }
 
     /// Handle effect error
     pub fn handle_effect_error(&mut self, error: String) {
         // Stop loading indicator
         self.state.ui_state.stop_loading();
-        
+
+        // Cancel any deferred lock if the save path failed.
+        self.state.pending_lock = false;
+
         // Show error on login screen if applicable
         if self.state.screen == Screen::Login {
             self.state.login_screen.error_message = Some(error.clone());
         }
-        
+
         // Also show notification
         self.state.ui_state.notify(&error, NotificationLevel::Error);
-        
+
         // Log at debug level to avoid console spam for expected errors (like wrong password)
         tracing::debug!("Effect error: {}", error);
     }

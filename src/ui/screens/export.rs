@@ -3,11 +3,11 @@
 //! Allows users to export vault data in various formats.
 
 use ratatui::{
+    Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, List, ListItem, ListState, Paragraph},
-    Frame,
 };
 
 use crate::app::AppState;
@@ -42,7 +42,9 @@ impl ExportFormat {
     pub fn description(&self) -> &'static str {
         match self {
             ExportFormat::Json => "Export all data as readable JSON. WARNING: Not encrypted!",
-            ExportFormat::EncryptedJson => "Export data as encrypted JSON. Requires password to import.",
+            ExportFormat::EncryptedJson => {
+                "Export data as encrypted JSON. Requires password to import."
+            }
             ExportFormat::Csv => "Export as CSV for spreadsheet import. WARNING: Not encrypted!",
         }
     }
@@ -189,9 +191,7 @@ fn render_header(frame: &mut Frame, area: Rect, theme: &ThemePalette) {
         ),
         Span::styled(
             "Export Vault",
-            Style::default()
-                .fg(theme.fg)
-                .add_modifier(Modifier::BOLD),
+            Style::default().fg(theme.fg).add_modifier(Modifier::BOLD),
         ),
     ]))
     .alignment(Alignment::Center)
@@ -228,15 +228,9 @@ fn render_format_list(
             };
 
             let warning = if !format.is_encrypted() {
-                Span::styled(
-                    format!(" {} ", icons::ui::WARNING),
-                    style.fg(theme.warning),
-                )
+                Span::styled(format!(" {} ", icons::ui::WARNING), style.fg(theme.warning))
             } else {
-                Span::styled(
-                    format!(" {} ", icons::ui::CHECK),
-                    style.fg(theme.success),
-                )
+                Span::styled(format!(" {} ", icons::ui::CHECK), style.fg(theme.success))
             };
 
             let line = Line::from(vec![

@@ -3,11 +3,11 @@
 //! A floating search dialog showing query input and matching results.
 
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, List, ListItem, Paragraph},
-    Frame,
 };
 
 use uuid::Uuid;
@@ -115,7 +115,7 @@ impl SearchState {
 
         // Search through items
         let search_results = fuzzy::search(items, &self.query, |item| &item.title);
-        
+
         self.results = search_results
             .into_iter()
             .take(10) // Limit results
@@ -192,7 +192,7 @@ pub fn render(
 
     // Render results and collect clickable regions
     let result_regions = render_results(frame, chunks[1], state, theme);
-    
+
     SearchClickRegions {
         result_regions,
         dialog_area: crate::input::mouse::ClickRegion::new(
@@ -205,12 +205,7 @@ pub fn render(
 }
 
 /// Render the search input field
-fn render_input(
-    frame: &mut Frame,
-    area: Rect,
-    state: &SearchState,
-    theme: &ThemePalette,
-) {
+fn render_input(frame: &mut Frame, area: Rect, state: &SearchState, theme: &ThemePalette) {
     // Build input text with cursor
     let before: String = state.query.chars().take(state.cursor).collect();
     let after: String = state.query.chars().skip(state.cursor).collect();
@@ -277,12 +272,16 @@ fn render_results(
             };
 
             let line = Line::from(vec![
-                Span::styled(
-                    if is_selected { " ▸ " } else { "   " },
-                    style,
-                ),
+                Span::styled(if is_selected { " ▸ " } else { "   " }, style),
                 Span::styled(format!("{} ", result.kind_icon), style),
-                Span::styled(&result.title, style.add_modifier(if is_selected { Modifier::BOLD } else { Modifier::empty() })),
+                Span::styled(
+                    &result.title,
+                    style.add_modifier(if is_selected {
+                        Modifier::BOLD
+                    } else {
+                        Modifier::empty()
+                    }),
+                ),
             ]);
 
             ListItem::new(line)
@@ -291,7 +290,7 @@ fn render_results(
 
     let list = List::new(items);
     frame.render_widget(list, area);
-    
+
     // Return clickable regions for each result
     // Note: List has no block/borders here, area is already the exact content area
     state
@@ -301,12 +300,7 @@ fn render_results(
         .map(|(i, _)| {
             (
                 i,
-                crate::input::mouse::ClickRegion::new(
-                    area.x,
-                    area.y + i as u16,
-                    area.width,
-                    1,
-                ),
+                crate::input::mouse::ClickRegion::new(area.x, area.y + i as u16, area.width, 1),
             )
         })
         .collect()
@@ -319,15 +313,15 @@ mod tests {
     #[test]
     fn test_search_state_input() {
         let mut state = SearchState::new();
-        
+
         state.insert('t');
         state.insert('e');
         state.insert('s');
         state.insert('t');
-        
+
         assert_eq!(state.query, "test");
         assert_eq!(state.cursor, 4);
-        
+
         state.backspace();
         assert_eq!(state.query, "tes");
     }
@@ -349,7 +343,7 @@ mod tests {
                 score: 90,
             },
         ];
-        
+
         assert_eq!(state.selected, 0);
         state.next_result();
         assert_eq!(state.selected, 1);
@@ -361,18 +355,18 @@ mod tests {
 
     #[test]
     fn test_update_results() {
-        use crate::domain::{Item, ItemKind};
-        
+        use crate::domain::Item;
+
         let mut state = SearchState::new();
         let items = vec![
             Item::password("Bitcoin Wallet", "secret"),
             Item::password("Ethereum Keys", "secret"),
             Item::password("Bank Account", "secret"),
         ];
-        
+
         state.query = "bit".to_string();
         state.update_results(&items);
-        
+
         assert!(!state.results.is_empty());
         assert!(state.results[0].title.to_lowercase().contains("bit"));
     }

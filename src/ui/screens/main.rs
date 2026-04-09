@@ -3,8 +3,8 @@
 //! Layout: [List | Detail] with statusline at bottom.
 
 use ratatui::{
-    layout::{Constraint, Direction, Layout, Rect},
     Frame,
+    layout::{Constraint, Direction, Layout, Rect},
 };
 
 use crate::app::{AppState, Pane};
@@ -84,13 +84,7 @@ pub fn render(
 
     // Render detail pane
     let detail_focused = state.ui_state.focused_pane == Pane::Detail;
-    item_detail::render(
-        frame,
-        content_chunks[1],
-        state,
-        detail_focused,
-        theme,
-    );
+    item_detail::render(frame, content_chunks[1], state, detail_focused, theme);
 
     // Render statusline
     statusline::render(frame, main_chunks[1], state, theme);
@@ -100,7 +94,6 @@ pub fn render(
     if let Some(window) = state.ui_state.floating_window.clone() {
         render_floating_window(frame, area, state, &window, theme);
     }
-
 }
 
 /// Render floating windows
@@ -111,14 +104,14 @@ fn render_floating_window(
     window: &crate::app::FloatingWindow,
     theme: &ThemePalette,
 ) {
+    use crate::app::FloatingWindow;
+    use crate::input::mouse::{ClickRegion, ClickableElement};
+    use crate::ui::widgets::{edit_form, kind_selector, search_dialog};
     use ratatui::{
         style::Style,
         text::Span,
         widgets::{Block, Borders, Clear, Paragraph},
     };
-    use crate::app::FloatingWindow;
-    use crate::ui::widgets::{edit_form, kind_selector, search_dialog};
-    use crate::input::mouse::{ClickRegion, ClickableElement};
 
     // Calculate centered floating area (for simple windows)
     let width = area.width.min(60);
@@ -129,21 +122,23 @@ fn render_floating_window(
     let float_area = Rect::new(x, y, width, height);
 
     match window {
-        FloatingWindow::Search { state: search_state } => {
+        FloatingWindow::Search {
+            state: search_state,
+        } => {
             let click_regions = search_dialog::render(frame, area, search_state, theme);
-            
+
             // Register floating window region
             state.ui_state.register_region(
                 crate::input::mouse::UiRegion::FloatingWindow,
                 click_regions.dialog_area,
             );
-            
+
             // Register clickable search results
             for (index, region) in click_regions.result_regions {
-                state.ui_state.layout_regions.register_clickable(
-                    region,
-                    ClickableElement::SearchResult(index),
-                );
+                state
+                    .ui_state
+                    .layout_regions
+                    .register_clickable(region, ClickableElement::SearchResult(index));
             }
         }
 
@@ -165,7 +160,7 @@ fn render_floating_window(
         FloatingWindow::ConfirmDelete { item_id } => {
             // Clear background
             frame.render_widget(Clear, float_area);
-            
+
             let item_name = state
                 .vault_state
                 .as_ref()
@@ -173,10 +168,7 @@ fn render_floating_window(
                 .map(|i| i.title.as_str())
                 .unwrap_or("item");
 
-            let text = format!(
-                "Delete \"{}\"?",
-                item_name
-            );
+            let text = format!("Delete \"{}\"?", item_name);
 
             let block = Block::default()
                 .borders(Borders::ALL)
@@ -190,16 +182,16 @@ fn render_floating_window(
 
             let inner = block.inner(float_area);
             frame.render_widget(block, float_area);
-            
+
             // Split inner area for message and buttons
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
-                    Constraint::Min(2),      // Message
-                    Constraint::Length(1),   // Buttons
+                    Constraint::Min(2),    // Message
+                    Constraint::Length(1), // Buttons
                 ])
                 .split(inner);
-            
+
             // Render message
             let paragraph = Paragraph::new(text)
                 .style(Style::default().fg(theme.fg))
@@ -208,10 +200,20 @@ fn render_floating_window(
             frame.render_widget(paragraph, chunks[0]);
 
             // Render buttons with embedded keyboard hints
-            use crate::ui::widgets::{render_button_row, ButtonStyle};
+            use crate::ui::widgets::{ButtonStyle, render_button_row};
             let buttons = vec![
-                ("confirm-delete".to_string(), "Yes, Delete", Some("y"), ButtonStyle::Danger),
-                ("cancel-delete".to_string(), "No, Cancel", Some("Esc"), ButtonStyle::Secondary),
+                (
+                    "confirm-delete".to_string(),
+                    "Yes, Delete",
+                    Some("y"),
+                    ButtonStyle::Danger,
+                ),
+                (
+                    "cancel-delete".to_string(),
+                    "No, Cancel",
+                    Some("Esc"),
+                    ButtonStyle::Secondary,
+                ),
             ];
 
             let button_regions = render_button_row(frame, chunks[1], &buttons, theme);
@@ -223,49 +225,56 @@ fn render_floating_window(
                     ClickableElement::Button(button_region.name),
                 );
             }
-            
+
             // Register floating window region
             state.ui_state.register_region(
                 crate::input::mouse::UiRegion::FloatingWindow,
-                ClickRegion::new(float_area.x, float_area.y, float_area.width, float_area.height),
+                ClickRegion::new(
+                    float_area.x,
+                    float_area.y,
+                    float_area.width,
+                    float_area.height,
+                ),
             );
         }
 
-        FloatingWindow::KindSelector { state: selector_state } => {
+        FloatingWindow::KindSelector {
+            state: selector_state,
+        } => {
             let click_regions = kind_selector::render(frame, area, selector_state, theme);
-            
+
             // Register floating window region
             state.ui_state.register_region(
                 crate::input::mouse::UiRegion::FloatingWindow,
                 click_regions.popup_area,
             );
-            
+
             // Register clickable kind options
             for (index, region) in click_regions.option_regions {
-                state.ui_state.layout_regions.register_clickable(
-                    region,
-                    ClickableElement::KindOption(index),
-                );
+                state
+                    .ui_state
+                    .layout_regions
+                    .register_clickable(region, ClickableElement::KindOption(index));
             }
         }
 
         FloatingWindow::NewItem { form } => {
             let click_regions = edit_form::render(frame, area, form, theme);
-            
+
             // Register floating window region
             state.ui_state.register_region(
                 crate::input::mouse::UiRegion::FloatingWindow,
                 click_regions.form_area,
             );
-            
+
             // Register clickable form fields
             for (index, region) in click_regions.field_regions {
-                state.ui_state.layout_regions.register_clickable(
-                    region,
-                    ClickableElement::FormField(index),
-                );
+                state
+                    .ui_state
+                    .layout_regions
+                    .register_clickable(region, ClickableElement::FormField(index));
             }
-            
+
             // Register form buttons
             for button_region in click_regions.button_regions {
                 state.ui_state.layout_regions.register_clickable(
@@ -277,21 +286,21 @@ fn render_floating_window(
 
         FloatingWindow::EditItem { form, .. } => {
             let click_regions = edit_form::render(frame, area, form, theme);
-            
+
             // Register floating window region
             state.ui_state.register_region(
                 crate::input::mouse::UiRegion::FloatingWindow,
                 click_regions.form_area,
             );
-            
+
             // Register clickable form fields
             for (index, region) in click_regions.field_regions {
-                state.ui_state.layout_regions.register_clickable(
-                    region,
-                    ClickableElement::FormField(index),
-                );
+                state
+                    .ui_state
+                    .layout_regions
+                    .register_clickable(region, ClickableElement::FormField(index));
             }
-            
+
             // Register form buttons
             for button_region in click_regions.button_regions {
                 state.ui_state.layout_regions.register_clickable(
@@ -304,7 +313,7 @@ fn render_floating_window(
         FloatingWindow::TagFilter => {
             // Clear background
             frame.render_widget(Clear, float_area);
-            
+
             let paragraph = Paragraph::new("Tag filter coming soon...")
                 .style(Style::default().fg(theme.fg_muted))
                 .block(
@@ -320,10 +329,15 @@ fn render_floating_window(
                 );
 
             frame.render_widget(paragraph, float_area);
-            
+
             state.ui_state.register_region(
                 crate::input::mouse::UiRegion::FloatingWindow,
-                ClickRegion::new(float_area.x, float_area.y, float_area.width, float_area.height),
+                ClickRegion::new(
+                    float_area.x,
+                    float_area.y,
+                    float_area.width,
+                    float_area.height,
+                ),
             );
         }
     }

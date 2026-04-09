@@ -3,11 +3,11 @@
 //! A popup menu showing available item kinds with icons.
 
 use ratatui::{
+    Frame,
     layout::Rect,
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, List, ListItem, ListState},
-    Frame,
 };
 
 use crate::domain::ItemKind;
@@ -146,11 +146,11 @@ pub fn render(
     list_state.select(Some(state.selected));
 
     frame.render_stateful_widget(list, popup_area, &mut list_state);
-    
+
     // Calculate clickable regions for each kind option
     // Use block.inner() to get the exact inner area after borders and title
     let inner = block.inner(popup_area);
-    
+
     let option_regions: Vec<(usize, crate::input::mouse::ClickRegion)> = state
         .kinds
         .iter()
@@ -158,16 +158,11 @@ pub fn render(
         .map(|(i, _)| {
             (
                 i,
-                crate::input::mouse::ClickRegion::new(
-                    inner.x,
-                    inner.y + i as u16,
-                    inner.width,
-                    1,
-                ),
+                crate::input::mouse::ClickRegion::new(inner.x, inner.y + i as u16, inner.width, 1),
             )
         })
         .collect();
-    
+
     KindSelectorClickRegions {
         option_regions,
         popup_area: crate::input::mouse::ClickRegion::new(

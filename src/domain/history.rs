@@ -229,14 +229,14 @@ mod tests {
             vec![],
         );
         let entry = HistoryEntry::created(snapshot);
-        
+
         matches!(entry.action, HistoryAction::Created);
     }
 
     #[test]
     fn test_undo_stack() {
         let mut stack = UndoStack::new();
-        
+
         assert!(!stack.can_undo());
         assert!(!stack.can_redo());
 
@@ -265,7 +265,7 @@ mod tests {
     #[test]
     fn test_undo_stack_max_size() {
         let mut stack = UndoStack::with_max_size(3);
-        
+
         for i in 0..5 {
             let snapshot = ItemSnapshot::new(
                 format!("Item {}", i),
@@ -275,7 +275,11 @@ mod tests {
                 None,
                 vec![],
             );
-            stack.push(UndoEntry::new(format!("Action {}", i), Uuid::new_v4(), snapshot));
+            stack.push(UndoEntry::new(
+                format!("Action {}", i),
+                Uuid::new_v4(),
+                snapshot,
+            ));
         }
 
         // Should only have 3 entries

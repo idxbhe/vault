@@ -3,11 +3,11 @@
 //! A scrollable list of items with icons, favorites, and tag indicators.
 
 use ratatui::{
+    Frame,
     layout::Rect,
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, ListState},
-    Frame,
 };
 
 use uuid::Uuid;
@@ -158,16 +158,30 @@ pub fn render(
     let items: Vec<ListItem> = list_state
         .visible_items
         .iter()
-        .filter_map(|id| state.vault_state.as_ref().and_then(|vs| vs.vault.get_item(*id)))
+        .filter_map(|id| {
+            state
+                .vault_state
+                .as_ref()
+                .and_then(|vs| vs.vault.get_item(*id))
+        })
         .enumerate()
         .map(|(idx, item)| {
             let selected = list_state.list_state.selected() == Some(idx);
-            create_list_item(item, selected, &state.vault_state.as_ref().unwrap().vault.tags, theme)
+            create_list_item(
+                item,
+                selected,
+                &state.vault_state.as_ref().unwrap().vault.tags,
+                theme,
+            )
         })
         .collect();
 
     // Build block with title
-    let vault_name = state.vault_state.as_ref().map(|vs| vs.vault.name.as_str()).unwrap_or("Vault");
+    let vault_name = state
+        .vault_state
+        .as_ref()
+        .map(|vs| vs.vault.name.as_str())
+        .unwrap_or("Vault");
     let title = build_title(vault_name, list_state.visible_items.len(), theme);
     let border_color = if focused {
         theme.border_focused
@@ -187,14 +201,15 @@ pub fn render(
         .highlight_symbol("▸ ");
 
     frame.render_stateful_widget(list, area, &mut list_state.list_state);
-    
+
     // Register clickable elements for each visible item
     // Use block.inner() to get the exact inner area after borders and title
     let inner = block.inner(area);
-    
+
     for (i, item_id) in list_state.visible_items.iter().enumerate() {
         let item_y = inner.y + i as u16;
-        if item_y < inner.y + inner.height { // Stay within inner bounds
+        if item_y < inner.y + inner.height {
+            // Stay within inner bounds
             state.ui_state.layout_regions.register_clickable(
                 crate::input::mouse::ClickRegion::new(inner.x, item_y, inner.width, 1),
                 crate::input::mouse::ClickableElement::ListItem(*item_id),
@@ -211,17 +226,10 @@ fn create_list_item<'a>(
     theme: &ThemePalette,
 ) -> ListItem<'a> {
     let icon = get_item_icon(item.kind);
-    let fav_icon = if item.favorite {
-        icons::ui::STAR
-    } else {
-        ""
-    };
+    let fav_icon = if item.favorite { icons::ui::STAR } else { "" };
 
     let mut spans = vec![
-        Span::styled(
-            format!("{} ", icon),
-            Style::default().fg(theme.accent),
-        ),
+        Span::styled(format!("{} ", icon), Style::default().fg(theme.accent)),
         Span::styled(item.title.clone(), Style::default().fg(theme.fg)),
     ];
 
@@ -264,9 +272,7 @@ fn build_title<'a>(vault_name: &str, count: usize, theme: &ThemePalette) -> Line
         ),
         Span::styled(
             vault_name.to_string(),
-            Style::default()
-                .fg(theme.fg)
-                .add_modifier(Modifier::BOLD),
+            Style::default().fg(theme.fg).add_modifier(Modifier::BOLD),
         ),
         Span::styled(
             format!(" ({}) ", count),
@@ -281,10 +287,7 @@ fn render_empty(frame: &mut Frame, area: Rect, message: &str, theme: &ThemePalet
         .borders(Borders::ALL)
         .border_type(ratatui::widgets::BorderType::Rounded)
         .border_style(Style::default().fg(theme.border))
-        .title(Span::styled(
-            " Items ",
-            Style::default().fg(theme.accent),
-        ));
+        .title(Span::styled(" Items ", Style::default().fg(theme.accent)));
 
     let paragraph = ratatui::widgets::Paragraph::new(message)
         .style(Style::default().fg(theme.fg_muted))

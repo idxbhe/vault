@@ -129,6 +129,8 @@ pub fn update(state: &mut AppState, msg: Message) -> Effect {
                     path: vs.vault_path.clone(),
                     vault: vs.vault.clone(),
                     key: vs.encryption_key,
+                    salt: vs.salt,
+                    has_keyfile: vs.has_keyfile,
                 }
             } else {
                 Effect::none()
@@ -156,8 +158,21 @@ pub enum Effect {
     
     // File I/O
     ReadVaultFile { path: PathBuf, password: SecureString, keyfile: Option<Vec<u8>> },
-    WriteVaultFile { path: PathBuf, vault: Vault, key: [u8; 32] },
-    ExportVault { path: PathBuf, vault: Vault, encrypted: bool, key: Option<[u8; 32]> },
+    WriteVaultFile {
+        path: PathBuf,
+        vault: Vault,
+        key: [u8; 32],
+        salt: [u8; 32],
+        has_keyfile: bool,
+    },
+    ExportVault {
+        path: PathBuf,
+        vault: Vault,
+        encrypted: bool,
+        key: Option<[u8; 32]>,
+        salt: Option<[u8; 32]>,
+        has_keyfile: bool,
+    },
     
     // Clipboard
     SetClipboard { content: String, is_sensitive: bool },
@@ -194,7 +209,13 @@ impl Runtime {
         match effect {
             Effect::ReadVaultFile { path, password, keyfile } => {
                 match read_vault_file(&path, &password, keyfile.as_deref()) {
-                    Ok((vault, key)) => EffectResult::VaultLoaded { vault, path, key },
+                    Ok((vault, key, salt, has_keyfile)) => EffectResult::VaultLoaded {
+                        vault,
+                        path,
+                        key,
+                        salt,
+                        has_keyfile,
+                    },
                     Err(e) => EffectResult::Error(e),
                 }
             }

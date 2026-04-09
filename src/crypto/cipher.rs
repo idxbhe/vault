@@ -1,8 +1,8 @@
 //! AES-256-GCM authenticated encryption
 
 use aes_gcm::{
-    aead::{Aead, KeyInit},
     Aes256Gcm, Nonce,
+    aead::{Aead, KeyInit},
 };
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
@@ -63,17 +63,21 @@ pub fn encrypt(
     salt: [u8; 32],
     argon2_params: Argon2Params,
 ) -> Result<EncryptedPayload> {
-    let cipher = Aes256Gcm::new_from_slice(key)
-        .map_err(|e| Error::Encryption(e.to_string()))?;
-    
+    let cipher = Aes256Gcm::new_from_slice(key).map_err(|e| Error::Encryption(e.to_string()))?;
+
     let nonce_bytes = generate_nonce();
     let nonce = Nonce::from_slice(&nonce_bytes);
-    
+
     let ciphertext = cipher
         .encrypt(nonce, plaintext)
         .map_err(|e| Error::Encryption(e.to_string()))?;
-    
-    Ok(EncryptedPayload::new(ciphertext, nonce_bytes, salt, argon2_params))
+
+    Ok(EncryptedPayload::new(
+        ciphertext,
+        nonce_bytes,
+        salt,
+        argon2_params,
+    ))
 }
 
 /// Decrypt ciphertext using AES-256-GCM
@@ -85,11 +89,10 @@ pub fn encrypt(
 /// # Returns
 /// The decrypted plaintext bytes
 pub fn decrypt(payload: &EncryptedPayload, key: &[u8; 32]) -> Result<Vec<u8>> {
-    let cipher = Aes256Gcm::new_from_slice(key)
-        .map_err(|_| Error::Decryption)?;
-    
+    let cipher = Aes256Gcm::new_from_slice(key).map_err(|_| Error::Decryption)?;
+
     let nonce = Nonce::from_slice(&payload.nonce);
-    
+
     cipher
         .decrypt(nonce, payload.ciphertext.as_slice())
         .map_err(|_| Error::Decryption)
@@ -113,8 +116,7 @@ pub fn decrypt_value<T: for<'de> Deserialize<'de>>(
     key: &[u8; 32],
 ) -> Result<T> {
     let plaintext = decrypt(payload, key)?;
-    bincode::deserialize(&plaintext)
-        .map_err(|_| Error::Decryption)
+    bincode::deserialize(&plaintext).map_err(|_| Error::Decryption)
 }
 
 #[cfg(test)]
@@ -127,10 +129,10 @@ mod tests {
         let salt = [1u8; 32];
         let params = Argon2Params::default();
         let plaintext = b"Hello, Vault!";
-        
+
         let encrypted = encrypt(plaintext, &key, salt, params).unwrap();
         let decrypted = decrypt(&encrypted, &key).unwrap();
-        
+
         assert_eq!(decrypted, plaintext);
     }
 
@@ -140,10 +142,10 @@ mod tests {
         let salt = [1u8; 32];
         let params = Argon2Params::default();
         let plaintext = b"Same plaintext";
-        
+
         let encrypted1 = encrypt(plaintext, &key, salt, params).unwrap();
         let encrypted2 = encrypt(plaintext, &key, salt, params).unwrap();
-        
+
         // Different nonces should produce different ciphertexts
         assert_ne!(encrypted1.ciphertext, encrypted2.ciphertext);
         assert_ne!(encrypted1.nonce, encrypted2.nonce);
@@ -156,10 +158,10 @@ mod tests {
         let salt = [1u8; 32];
         let params = Argon2Params::default();
         let plaintext = b"Secret data";
-        
+
         let encrypted = encrypt(plaintext, &key, salt, params).unwrap();
         let result = decrypt(&encrypted, &wrong_key);
-        
+
         assert!(result.is_err());
     }
 
@@ -169,14 +171,14 @@ mod tests {
         let salt = [1u8; 32];
         let params = Argon2Params::default();
         let plaintext = b"Secret data";
-        
+
         let mut encrypted = encrypt(plaintext, &key, salt, params).unwrap();
-        
+
         // Tamper with the ciphertext
         if let Some(byte) = encrypted.ciphertext.first_mut() {
             *byte ^= 0xFF;
         }
-        
+
         let result = decrypt(&encrypted, &key);
         assert!(result.is_err());
     }
@@ -184,25 +186,25 @@ mod tests {
     #[test]
     fn test_encrypt_decrypt_value() {
         use serde::{Deserialize, Serialize};
-        
+
         #[derive(Debug, Serialize, Deserialize, PartialEq)]
         struct TestData {
             name: String,
             value: i32,
         }
-        
+
         let key = [42u8; 32];
         let salt = [1u8; 32];
         let params = Argon2Params::default();
-        
+
         let original = TestData {
             name: "test".to_string(),
             value: 42,
         };
-        
+
         let encrypted = encrypt_value(&original, &key, salt, params).unwrap();
         let decrypted: TestData = decrypt_value(&encrypted, &key).unwrap();
-        
+
         assert_eq!(original, decrypted);
     }
 
@@ -212,10 +214,10 @@ mod tests {
         let salt = [1u8; 32];
         let params = Argon2Params::default();
         let plaintext = b"";
-        
+
         let encrypted = encrypt(plaintext, &key, salt, params).unwrap();
         let decrypted = decrypt(&encrypted, &key).unwrap();
-        
+
         assert_eq!(decrypted, plaintext);
     }
 
@@ -224,13 +226,13 @@ mod tests {
         let key = [42u8; 32];
         let salt = [1u8; 32];
         let params = Argon2Params::default();
-        
+
         // 1 MB of data
         let plaintext: Vec<u8> = (0..1_000_000).map(|i| (i % 256) as u8).collect();
-        
+
         let encrypted = encrypt(&plaintext, &key, salt, params).unwrap();
         let decrypted = decrypt(&encrypted, &key).unwrap();
-        
+
         assert_eq!(decrypted, plaintext);
     }
 }

@@ -97,15 +97,15 @@ Vault dapat dikonfigurasi untuk auto-lock setelah periode inaktivitas:
 
 ## Export Vault
 
-### Quick Export (JSON)
+### Quick Export (Encrypted)
 
-Tekan `Ctrl+E` untuk export vault ke file JSON di direktori saat ini.
+Tekan `Ctrl+E` untuk export vault terenkripsi ke file `.vault` di direktori saat ini.
 
 ```
-✓ Exported to vault_export.json
+✓ Exported to vault_export.vault
 ```
 
-**⚠️ PERINGATAN**: Export JSON **TIDAK TERENKRIPSI**! Data sensitif akan terlihat dalam plaintext.
+Format ini tetap terenkripsi seperti vault utama, sehingga aman untuk backup/transfer.
 
 ### Format Export
 

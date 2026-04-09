@@ -130,26 +130,24 @@ pub struct VaultState {
 
 ```rust
 pub enum Message {
-    // User input
-    InputChar(char),
-    InputBackspace,
-    InputSubmit,
-    
-    // UI actions
-    FormNew,
-    FormEdit(usize),
-    FormCancel,
-    FormSubmit,
-    
     // Login
     LoginSelectNext,
     LoginSelectPrev,
     LoginSelectVault(usize),
-    
-    // Effects
-    VaultLoaded { vault, key, salt },
-    VaultCreated { vault, key, salt },
-    // ...
+    EnterPasswordMode,
+    UnlockVault { password: SecureString, keyfile: Option<PathBuf> },
+
+    // Core actions
+    SaveVault,
+    LockVault,
+    ExportVault { format: ExportFormat, path: PathBuf },
+
+    // Input/system
+    InputChar(char),
+    InputBackspace,
+    InputSubmit,
+    Tick,
+    Quit,
 }
 ```
 
@@ -158,9 +156,11 @@ pub enum Message {
 ```rust
 pub enum Effect {
     ReadVaultFile { path, password, keyfile },
-    WriteVaultFile { path, vault, key, salt },
-    CreateVault { path, password },
-    // ...
+    WriteVaultFile { path, vault, key, salt, has_keyfile },
+    ExportVault { path, vault, encrypted, key, salt, has_keyfile },
+    ReadConfig,
+    WriteConfig,
+    UpdateRegistry,
 }
 ```
 

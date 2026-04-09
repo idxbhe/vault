@@ -33,6 +33,8 @@ pub struct AppState {
     pub config: AppConfig,
     /// Known vaults registry
     pub registry: VaultRegistry,
+    /// Whether a lock was requested and should happen right after successful save
+    pub pending_lock: bool,
     /// Whether the app should quit
     pub should_quit: bool,
 }
@@ -53,6 +55,7 @@ impl AppState {
             login_screen: LoginScreen::new(),
             config,
             registry,
+            pending_lock: false,
             should_quit: false,
         }
     }
@@ -81,7 +84,10 @@ impl AppState {
 
     /// Check if there are unsaved changes
     pub fn is_dirty(&self) -> bool {
-        self.vault_state.as_ref().map(|vs| vs.is_dirty).unwrap_or(false)
+        self.vault_state
+            .as_ref()
+            .map(|vs| vs.is_dirty)
+            .unwrap_or(false)
     }
 }
 
@@ -128,6 +134,8 @@ pub struct VaultState {
     pub encryption_key: [u8; 32],
     /// Original salt (must be preserved for re-encryption)
     pub salt: [u8; 32],
+    /// Whether this vault requires a keyfile
+    pub has_keyfile: bool,
     /// Whether there are unsaved changes
     pub is_dirty: bool,
     /// Currently selected item
@@ -142,12 +150,19 @@ pub struct VaultState {
 
 impl VaultState {
     /// Create a new vault state
-    pub fn new(vault: Vault, vault_path: PathBuf, encryption_key: [u8; 32], salt: [u8; 32]) -> Self {
+    pub fn new(
+        vault: Vault,
+        vault_path: PathBuf,
+        encryption_key: [u8; 32],
+        salt: [u8; 32],
+        has_keyfile: bool,
+    ) -> Self {
         Self {
             vault,
             vault_path,
             encryption_key,
             salt,
+            has_keyfile,
             is_dirty: false,
             selected_item_id: None,
             undo_stack: Vec::new(),
@@ -205,9 +220,7 @@ pub struct ItemSnapshot {
 impl ItemSnapshot {
     /// Create a snapshot from an item
     pub fn from_item(item: &Item) -> Self {
-        Self {
-            item: item.clone(),
-        }
+        Self { item: item.clone() }
     }
 }
 
@@ -267,7 +280,11 @@ impl UIState {
     }
 
     /// Register a clickable region
-    pub fn register_region(&mut self, name: crate::input::mouse::UiRegion, region: crate::input::mouse::ClickRegion) {
+    pub fn register_region(
+        &mut self,
+        name: crate::input::mouse::UiRegion,
+        region: crate::input::mouse::ClickRegion,
+    ) {
         self.layout_regions.set(name, region);
     }
 
@@ -357,71 +374,124 @@ impl FloatingWindow {
     /// Create an edit item form
     pub fn edit_item_form(item: &Item) -> Self {
         let mut form = EditFormState::new(item.kind, false);
-        
+
         // Pre-fill the form with existing item data
         form.set_title(&item.title);
-        
+
         // Fill content fields based on kind
         match &item.content {
             ItemContent::Generic { value } => {
-                if let Some(idx) = form.fields.iter().position(|f| *f == crate::ui::widgets::FormField::Content) {
+                if let Some(idx) = form
+                    .fields
+                    .iter()
+                    .position(|f| *f == crate::ui::widgets::FormField::Content)
+                {
                     form.values[idx] = value.clone();
                 }
             }
-            ItemContent::CryptoSeed { seed_phrase, derivation_path, network } => {
-                if let Some(idx) = form.fields.iter().position(|f| *f == crate::ui::widgets::FormField::SeedPhrase) {
+            ItemContent::CryptoSeed {
+                seed_phrase,
+                derivation_path,
+                network,
+            } => {
+                if let Some(idx) = form
+                    .fields
+                    .iter()
+                    .position(|f| *f == crate::ui::widgets::FormField::SeedPhrase)
+                {
                     form.values[idx] = seed_phrase.clone();
                 }
-                if let Some(idx) = form.fields.iter().position(|f| *f == crate::ui::widgets::FormField::DerivationPath) {
+                if let Some(idx) = form
+                    .fields
+                    .iter()
+                    .position(|f| *f == crate::ui::widgets::FormField::DerivationPath)
+                {
                     if let Some(dp) = derivation_path {
                         form.values[idx] = dp.clone();
                     }
                 }
-                if let Some(idx) = form.fields.iter().position(|f| *f == crate::ui::widgets::FormField::Network) {
+                if let Some(idx) = form
+                    .fields
+                    .iter()
+                    .position(|f| *f == crate::ui::widgets::FormField::Network)
+                {
                     if let Some(net) = network {
                         form.values[idx] = net.clone();
                     }
                 }
             }
-            ItemContent::Password { username, password, url, .. } => {
-                if let Some(idx) = form.fields.iter().position(|f| *f == crate::ui::widgets::FormField::Username) {
+            ItemContent::Password {
+                username,
+                password,
+                url,
+                ..
+            } => {
+                if let Some(idx) = form
+                    .fields
+                    .iter()
+                    .position(|f| *f == crate::ui::widgets::FormField::Username)
+                {
                     if let Some(u) = username {
                         form.values[idx] = u.clone();
                     }
                 }
-                if let Some(idx) = form.fields.iter().position(|f| *f == crate::ui::widgets::FormField::Password) {
+                if let Some(idx) = form
+                    .fields
+                    .iter()
+                    .position(|f| *f == crate::ui::widgets::FormField::Password)
+                {
                     form.values[idx] = password.clone();
                 }
-                if let Some(idx) = form.fields.iter().position(|f| *f == crate::ui::widgets::FormField::Url) {
+                if let Some(idx) = form
+                    .fields
+                    .iter()
+                    .position(|f| *f == crate::ui::widgets::FormField::Url)
+                {
                     if let Some(u) = url {
                         form.values[idx] = u.clone();
                     }
                 }
             }
             ItemContent::SecureNote { content } => {
-                if let Some(idx) = form.fields.iter().position(|f| *f == crate::ui::widgets::FormField::Content) {
+                if let Some(idx) = form
+                    .fields
+                    .iter()
+                    .position(|f| *f == crate::ui::widgets::FormField::Content)
+                {
                     form.values[idx] = content.clone();
                 }
             }
             ItemContent::ApiKey { key, service, .. } => {
-                if let Some(idx) = form.fields.iter().position(|f| *f == crate::ui::widgets::FormField::ApiKey) {
+                if let Some(idx) = form
+                    .fields
+                    .iter()
+                    .position(|f| *f == crate::ui::widgets::FormField::ApiKey)
+                {
                     form.values[idx] = key.clone();
                 }
-                if let Some(idx) = form.fields.iter().position(|f| *f == crate::ui::widgets::FormField::Service) {
+                if let Some(idx) = form
+                    .fields
+                    .iter()
+                    .position(|f| *f == crate::ui::widgets::FormField::Service)
+                {
                     if let Some(s) = service {
                         form.values[idx] = s.clone();
                     }
                 }
             }
         }
-        
+
         // Fill notes
         if let Some(notes) = &item.notes {
-            if let Some(idx) = form.fields.iter().position(|f| *f == crate::ui::widgets::FormField::Notes) {
+            if let Some(idx) = form
+                .fields
+                .iter()
+                .position(|f| *f == crate::ui::widgets::FormField::Notes)
+            {
                 form.values[idx] = notes.clone();
             }
         }
-        
+
         Self::EditItem {
             item_id: item.id,
             form,
@@ -454,7 +524,11 @@ impl Notification {
     }
 
     /// Create with custom duration
-    pub fn with_duration(message: impl Into<String>, level: NotificationLevel, seconds: i64) -> Self {
+    pub fn with_duration(
+        message: impl Into<String>,
+        level: NotificationLevel,
+        seconds: i64,
+    ) -> Self {
         Self {
             id: Uuid::new_v4(),
             message: message.into(),
@@ -645,22 +719,22 @@ mod tests {
     #[test]
     fn test_input_buffer() {
         let mut buf = InputBuffer::new();
-        
+
         buf.insert('H');
         buf.insert('e');
         buf.insert('l');
         buf.insert('l');
         buf.insert('o');
-        
+
         assert_eq!(buf.text, "Hello");
         assert_eq!(buf.cursor, 5);
-        
+
         buf.backspace();
         assert_eq!(buf.text, "Hell");
-        
+
         buf.home();
         assert_eq!(buf.cursor, 0);
-        
+
         buf.move_right();
         buf.insert('X');
         assert_eq!(buf.text, "HXell");
@@ -688,7 +762,7 @@ mod tests {
 
         clip.set_secure(0); // Immediate clear
         assert!(clip.has_secure_content);
-        
+
         std::thread::sleep(std::time::Duration::from_millis(10));
         assert!(clip.should_clear());
 

@@ -30,6 +30,7 @@ pub enum Effect {
         vault: Vault,
         key: [u8; 32],
         salt: [u8; 32],
+        has_keyfile: bool,
     },
     /// Read application config
     ReadConfig,
@@ -42,10 +43,7 @@ pub enum Effect {
 
     // === Clipboard ===
     /// Set clipboard content
-    SetClipboard {
-        content: String,
-        is_sensitive: bool,
-    },
+    SetClipboard { content: String, is_sensitive: bool },
     /// Clear clipboard
     ClearClipboard,
     /// Schedule clipboard clear after delay
@@ -64,6 +62,8 @@ pub enum Effect {
         vault: Vault,
         encrypted: bool,
         key: Option<[u8; 32]>,
+        salt: Option<[u8; 32]>,
+        has_keyfile: bool,
     },
 
     // === System ===
@@ -119,6 +119,7 @@ pub enum EffectResult {
         path: PathBuf,
         key: [u8; 32],
         salt: [u8; 32],
+        has_keyfile: bool,
     },
     /// Vault was saved successfully
     VaultSaved,

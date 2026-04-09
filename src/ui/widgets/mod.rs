@@ -12,11 +12,13 @@ pub mod notification;
 pub mod search_dialog;
 pub mod statusline;
 
-pub use button::{render_button_row, render_keyboard_hints, ButtonRegion, ButtonStyle};
-pub use edit_form::{render as render_edit_form, EditFormState, FormClickRegions, FormField};
+pub use button::{ButtonRegion, ButtonStyle, render_button_row, render_keyboard_hints};
+pub use edit_form::{EditFormState, FormClickRegions, FormField, render as render_edit_form};
 pub use help::render as render_help;
 pub use item_detail::render as render_item_detail;
-pub use item_list::{render as render_item_list, ItemListState};
-pub use kind_selector::{render as render_kind_selector, KindSelectorClickRegions, KindSelectorState};
-pub use search_dialog::{render as render_search_dialog, SearchClickRegions, SearchState};
+pub use item_list::{ItemListState, render as render_item_list};
+pub use kind_selector::{
+    KindSelectorClickRegions, KindSelectorState, render as render_kind_selector,
+};
+pub use search_dialog::{SearchClickRegions, SearchState, render as render_search_dialog};
 pub use statusline::render as render_statusline;

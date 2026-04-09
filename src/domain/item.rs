@@ -61,10 +61,7 @@ impl Item {
     }
 
     /// Create a crypto seed item
-    pub fn crypto_seed(
-        title: impl Into<String>,
-        seed_phrase: impl Into<String>,
-    ) -> Self {
+    pub fn crypto_seed(title: impl Into<String>, seed_phrase: impl Into<String>) -> Self {
         Self::new(
             title,
             ItemKind::CryptoSeed,
@@ -77,10 +74,7 @@ impl Item {
     }
 
     /// Create a password item
-    pub fn password(
-        title: impl Into<String>,
-        password: impl Into<String>,
-    ) -> Self {
+    pub fn password(title: impl Into<String>, password: impl Into<String>) -> Self {
         Self::new(
             title,
             ItemKind::Password,
@@ -237,9 +231,7 @@ impl ItemKind {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ItemContent {
     /// Generic: simple value
-    Generic {
-        value: String,
-    },
+    Generic { value: String },
 
     /// Crypto seed phrase with optional metadata
     CryptoSeed {
@@ -257,9 +249,7 @@ pub enum ItemContent {
     },
 
     /// Secure note (potentially markdown)
-    SecureNote {
-        content: String,
-    },
+    SecureNote { content: String },
 
     /// API key or token
     ApiKey {
@@ -284,7 +274,7 @@ mod tests {
     #[test]
     fn test_item_generic() {
         let item = Item::generic("My Secret", "super_secret_value");
-        
+
         assert_eq!(item.title, "My Secret");
         assert_eq!(item.kind, ItemKind::Generic);
         assert_eq!(item.get_copyable_content(), Some("super_secret_value"));
@@ -296,7 +286,7 @@ mod tests {
             "Bitcoin Wallet",
             "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
         );
-        
+
         assert_eq!(item.kind, ItemKind::CryptoSeed);
         assert!(item.get_copyable_content().unwrap().contains("abandon"));
     }
@@ -306,7 +296,7 @@ mod tests {
         let item = Item::password("GitHub", "my_password123")
             .with_notes("Main account")
             .with_favorite(true);
-        
+
         assert_eq!(item.kind, ItemKind::Password);
         assert!(item.favorite);
         assert_eq!(item.notes, Some("Main account".to_string()));

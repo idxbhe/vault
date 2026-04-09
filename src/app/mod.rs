@@ -15,7 +15,7 @@ pub mod update;
 
 pub use effect::{Effect, EffectResult};
 pub use message::{ConfigUpdate, ExportFormat, ItemUpdates, Message, ScrollDirection};
-pub use runtime::{write_vault_file, Runtime};
+pub use runtime::{Runtime, write_vault_file};
 pub use state::{
     AppMode, AppState, ClipboardState, FilterState, FloatingWindow, InputBuffer, Notification,
     NotificationLevel, Pane, Screen, UIState, UndoEntry, VaultState,

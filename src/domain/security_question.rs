@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::crypto::{hash_security_answer, verify_security_answer, SecureString};
+use crate::crypto::{SecureString, hash_security_answer, verify_security_answer};
 use crate::utils::error::Result;
 use crate::utils::mask::partial_reveal;
 
@@ -96,11 +96,7 @@ impl RecoveryState {
     }
 
     /// Attempt to answer a question
-    pub fn attempt_answer(
-        &mut self,
-        question_index: usize,
-        answer: &SecureString,
-    ) -> Result<bool> {
+    pub fn attempt_answer(&mut self, question_index: usize, answer: &SecureString) -> Result<bool> {
         if question_index >= self.questions.len() {
             return Ok(false);
         }
@@ -175,21 +171,27 @@ mod tests {
         assert!(!state.is_complete());
 
         // Answer first question correctly
-        assert!(state
-            .attempt_answer(0, &SecureString::from_str("a1"))
-            .unwrap());
+        assert!(
+            state
+                .attempt_answer(0, &SecureString::from_str("a1"))
+                .unwrap()
+        );
         assert_eq!(state.correct_count(), 1);
 
         // Wrong answer
-        assert!(!state
-            .attempt_answer(1, &SecureString::from_str("wrong"))
-            .unwrap());
+        assert!(
+            !state
+                .attempt_answer(1, &SecureString::from_str("wrong"))
+                .unwrap()
+        );
         assert_eq!(state.failed_attempts, 1);
 
         // Correct second answer
-        assert!(state
-            .attempt_answer(1, &SecureString::from_str("a2"))
-            .unwrap());
+        assert!(
+            state
+                .attempt_answer(1, &SecureString::from_str("a2"))
+                .unwrap()
+        );
         assert!(state.is_complete());
     }
 

@@ -113,10 +113,10 @@ impl ThemePalette {
 pub trait Theme {
     /// Get the theme name
     fn name(&self) -> &'static str;
-    
+
     /// Get the color palette
     fn palette(&self) -> ThemePalette;
-    
+
     /// Check if this is a light theme
     fn is_light(&self) -> bool {
         false

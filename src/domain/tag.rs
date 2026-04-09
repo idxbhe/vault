@@ -52,10 +52,8 @@ mod tests {
 
     #[test]
     fn test_tag_creation() {
-        let tag = Tag::new("crypto")
-            .with_color("#f7931a")
-            .with_icon("󰞃");
-        
+        let tag = Tag::new("crypto").with_color("#f7931a").with_icon("󰞃");
+
         assert_eq!(tag.name, "crypto");
         assert_eq!(tag.color, Some("#f7931a".to_string()));
         assert_eq!(tag.icon, Some("󰞃".to_string()));

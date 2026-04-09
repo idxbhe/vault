@@ -3,11 +3,11 @@
 //! Shows mode, vault info, item count, and keybinding hints.
 
 use ratatui::{
+    Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
-    Frame,
 };
 
 use crate::app::{AppMode, AppState, FloatingWindow, NotificationLevel, Pane};
@@ -43,15 +43,13 @@ fn render_mode_indicator(frame: &mut Frame, area: Rect, state: &AppState, theme:
         AppMode::Exporting => (icons::mode::COMMAND, "EXPORT", theme.info),
     };
 
-    let mode = Paragraph::new(Line::from(vec![
-        Span::styled(
-            format!(" {} {} ", icon, label),
-            Style::default()
-                .fg(theme.bg)
-                .bg(bg_color)
-                .add_modifier(Modifier::BOLD),
-        ),
-    ]));
+    let mode = Paragraph::new(Line::from(vec![Span::styled(
+        format!(" {} {} ", icon, label),
+        Style::default()
+            .fg(theme.bg)
+            .bg(bg_color)
+            .add_modifier(Modifier::BOLD),
+    )]));
 
     frame.render_widget(mode, area);
 }
@@ -87,7 +85,10 @@ fn render_middle_section(frame: &mut Frame, area: Rect, state: &AppState, theme:
         }
 
         // Search indicator (show if search dialog is open)
-        if let Some(FloatingWindow::Search { state: ref search_state }) = state.ui_state.floating_window {
+        if let Some(FloatingWindow::Search {
+            state: ref search_state,
+        }) = state.ui_state.floating_window
+        {
             if !search_state.query.is_empty() {
                 spans.push(Span::styled(
                     format!("/{} ", search_state.query),
