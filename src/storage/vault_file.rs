@@ -2,6 +2,7 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use std::fs;
 use std::io::{Read, Write};
 use std::path::Path;
@@ -21,7 +22,7 @@ const MAX_HEADER_SIZE: usize = 64 * 1024;
 const MAX_PAYLOAD_SIZE: usize = 16 * 1024 * 1024;
 
 /// Vault file header (stored unencrypted)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct VaultFileHeader {
     /// Vault UUID
     pub vault_id: Uuid,
@@ -35,6 +36,19 @@ pub struct VaultFileHeader {
     pub security_question_count: u8,
     /// Security question texts (for display)
     pub security_questions: Vec<String>,
+}
+
+impl fmt::Debug for VaultFileHeader {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("VaultFileHeader")
+            .field("vault_id", &self.vault_id)
+            .field("vault_name", &self.vault_name)
+            .field("created_at", &self.created_at)
+            .field("has_keyfile", &self.has_keyfile)
+            .field("security_question_count", &self.security_question_count)
+            .field("security_questions", &format!("[REDACTED {} questions]", self.security_questions.len()))
+            .finish()
+    }
 }
 
 impl VaultFileHeader {
@@ -56,12 +70,20 @@ impl VaultFileHeader {
 }
 
 /// Complete vault file structure
-#[derive(Debug)]
 pub struct VaultFile {
     /// Unencrypted header
     pub header: VaultFileHeader,
     /// Encrypted vault data
     pub encrypted_payload: EncryptedPayload,
+}
+
+impl fmt::Debug for VaultFile {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("VaultFile")
+            .field("header", &self.header)
+            .field("encrypted_payload", &self.encrypted_payload)
+            .finish()
+    }
 }
 
 impl VaultFile {

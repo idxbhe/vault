@@ -479,6 +479,7 @@ impl FloatingWindow {
                     }
                 }
             }
+            _ => {}
         }
 
         // Fill notes

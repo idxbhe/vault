@@ -226,6 +226,9 @@ fn get_fields_for_kind(kind: ItemKind) -> Vec<FormField> {
             fields.push(FormField::Service);
             fields.push(FormField::ApiKey);
         }
+        _ => {
+            fields.push(FormField::Content);
+        }
     }
 
     fields.push(FormField::Notes);

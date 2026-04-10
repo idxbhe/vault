@@ -288,6 +288,12 @@ fn build_content_section<'a>(
                 ));
             }
         }
+        _ => {
+            lines.push(Line::from(Span::styled(
+                "Unsupported item content",
+                Style::default().fg(theme.error),
+            )));
+        }
     }
 
     lines

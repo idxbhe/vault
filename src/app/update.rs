@@ -1506,6 +1506,9 @@ fn create_item_from_form(form: &crate::ui::widgets::EditFormState) -> Item {
                 .map(|s| s.to_string()),
             expires_at: None,
         },
+        _ => ItemContent::Generic {
+            value: String::new(),
+        },
     };
 
     let mut item = Item::new(&title, form.kind, content);
@@ -1574,6 +1577,7 @@ fn create_updates_from_form(form: &crate::ui::widgets::EditFormState) -> ItemUpd
                 .map(|s| s.to_string()),
             expires_at: None,
         }),
+        _ => None,
     };
 
     ItemUpdates {
