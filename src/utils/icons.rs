@@ -9,6 +9,7 @@ pub mod item {
     pub const SECURE_NOTE: &str = "󱞂";
     pub const NOTE: &str = "󱞂";
     pub const API_KEY: &str = "󰯄";
+    pub const CUSTOM: &str = "󰅩";
 }
 
 /// Icons for UI elements

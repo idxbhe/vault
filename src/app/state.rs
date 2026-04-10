@@ -8,10 +8,11 @@ use std::time::Instant;
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
-use crate::domain::{Item, ItemContent, ItemKind, Vault};
+use crate::crypto::EncryptionMethod;
+use crate::domain::{CustomField, Item, ItemContent, ItemKind, RecoveryMetadata, Vault};
 use crate::input::mouse::LayoutRegions;
 use crate::storage::{AppConfig, VaultRegistry};
-use crate::ui::screens::LoginScreen;
+use crate::ui::screens::{LoginScreen, SettingsScreen};
 use crate::ui::widgets::{EditFormState, KindSelectorState, SearchState};
 
 /// Root application state
@@ -29,6 +30,8 @@ pub struct AppState {
     pub clipboard_state: ClipboardState,
     /// Login screen state
     pub login_screen: LoginScreen,
+    /// Settings screen state
+    pub settings_state: SettingsScreen,
     /// Application configuration
     pub config: AppConfig,
     /// Known vaults registry
@@ -53,6 +56,7 @@ impl AppState {
             ui_state,
             clipboard_state: ClipboardState::default(),
             login_screen: LoginScreen::new(),
+            settings_state: SettingsScreen::new(),
             config,
             registry,
             pending_lock: false,
@@ -136,6 +140,10 @@ pub struct VaultState {
     pub salt: [u8; 32],
     /// Whether this vault requires a keyfile
     pub has_keyfile: bool,
+    /// Encryption method used by this vault
+    pub encryption_method: EncryptionMethod,
+    /// Recovery metadata stored in vault header
+    pub recovery_metadata: Option<RecoveryMetadata>,
     /// Whether there are unsaved changes
     pub is_dirty: bool,
     /// Currently selected item
@@ -156,6 +164,8 @@ impl VaultState {
         encryption_key: [u8; 32],
         salt: [u8; 32],
         has_keyfile: bool,
+        encryption_method: EncryptionMethod,
+        recovery_metadata: Option<RecoveryMetadata>,
     ) -> Self {
         Self {
             vault,
@@ -163,6 +173,8 @@ impl VaultState {
             encryption_key,
             salt,
             has_keyfile,
+            encryption_method,
+            recovery_metadata,
             is_dirty: false,
             selected_item_id: None,
             undo_stack: Vec::new(),
@@ -479,6 +491,15 @@ impl FloatingWindow {
                     }
                 }
             }
+            ItemContent::Custom { fields } => {
+                if let Some(idx) = form
+                    .fields
+                    .iter()
+                    .position(|f| *f == crate::ui::widgets::FormField::CustomFields)
+                {
+                    form.values[idx] = format_custom_fields_for_form(fields);
+                }
+            }
         }
 
         // Fill notes
@@ -497,6 +518,21 @@ impl FloatingWindow {
             form,
         }
     }
+}
+
+fn format_custom_fields_for_form(fields: &[CustomField]) -> String {
+    fields
+        .iter()
+        .map(|field| {
+            format!(
+                "{}:{}={}",
+                field.field_type.as_str(),
+                field.key,
+                field.value
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(";")
 }
 
 /// User notification

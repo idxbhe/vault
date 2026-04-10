@@ -84,13 +84,17 @@ impl Runtime {
                 password,
                 keyfile,
             } => match read_vault_file(&path, &password, keyfile.as_deref()) {
-                Ok((vault, key, salt, has_keyfile)) => EffectResult::VaultLoaded {
-                    vault,
-                    path,
-                    key,
-                    salt,
-                    has_keyfile,
-                },
+                Ok((vault, key, salt, has_keyfile, encryption_method, recovery_metadata)) => {
+                    EffectResult::VaultLoaded {
+                        vault,
+                        path,
+                        key,
+                        salt,
+                        has_keyfile,
+                        encryption_method,
+                        recovery_metadata,
+                    }
+                }
                 Err(e) => EffectResult::Error(e),
             },
 
@@ -100,7 +104,17 @@ impl Runtime {
                 key,
                 salt,
                 has_keyfile,
-            } => match write_vault_file(&path, &vault, &key, &salt, has_keyfile) {
+                encryption_method,
+                recovery_metadata,
+            } => match write_vault_file(
+                &path,
+                &vault,
+                &key,
+                &salt,
+                has_keyfile,
+                encryption_method,
+                recovery_metadata,
+            ) {
                 Ok(()) => EffectResult::VaultSaved,
                 Err(e) => EffectResult::Error(e),
             },
@@ -252,7 +266,17 @@ fn read_vault_file(
     path: &PathBuf,
     password: &SecureString,
     keyfile: Option<&[u8]>,
-) -> Result<(Vault, [u8; 32], [u8; 32], bool), String> {
+) -> Result<
+    (
+        Vault,
+        [u8; 32],
+        [u8; 32],
+        bool,
+        crate::crypto::EncryptionMethod,
+        Option<crate::domain::RecoveryMetadata>,
+    ),
+    String,
+> {
     let vault_file = VaultFile::read(path).map_err(|e| match e {
         crate::utils::error::Error::VaultNotFound(_) => "Vault file not found".to_string(),
         crate::utils::error::Error::InvalidVaultFormat(_) => {
@@ -269,6 +293,8 @@ fn read_vault_file(
     }
 
     let has_keyfile = vault_file.header.has_keyfile;
+    let encryption_method = vault_file.header.encryption_method;
+    let recovery_metadata = vault_file.header.recovery_metadata.clone();
 
     // Extract salt before consuming vault_file
     let salt = vault_file.encrypted_payload.salt;
@@ -284,7 +310,14 @@ fn read_vault_file(
             _ => format!("Failed to decrypt vault: {}", e),
         })?;
 
-    Ok((vault, key, salt, has_keyfile))
+    Ok((
+        vault,
+        key,
+        salt,
+        has_keyfile,
+        encryption_method,
+        recovery_metadata,
+    ))
 }
 
 /// Write vault to file (needs vault state, called externally)
@@ -294,9 +327,18 @@ pub fn write_vault_file(
     key: &[u8; 32],
     salt: &[u8; 32],
     has_keyfile: bool,
+    encryption_method: crate::crypto::EncryptionMethod,
+    recovery_metadata: Option<crate::domain::RecoveryMetadata>,
 ) -> Result<(), String> {
-    let vault_file = VaultFile::new_with_key(vault.clone(), key, salt, has_keyfile)
-        .map_err(|e| format!("Failed to create vault file: {}", e))?;
+    let vault_file = VaultFile::new_with_key_options(
+        vault.clone(),
+        key,
+        salt,
+        has_keyfile,
+        encryption_method,
+        recovery_metadata,
+    )
+    .map_err(|e| format!("Failed to create vault file: {}", e))?;
     vault_file
         .write(path)
         .map_err(|e| format!("Failed to write vault: {}", e))

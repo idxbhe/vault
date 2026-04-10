@@ -7,16 +7,19 @@ use std::io::{Read, Write};
 use std::path::Path;
 use uuid::Uuid;
 
-use crate::crypto::{Argon2Params, EncryptedPayload, SecureString, decrypt, encrypt};
-use crate::crypto::{derive_key, generate_salt};
-use crate::domain::Vault;
+use crate::crypto::{
+    Argon2Params, EncryptedPayload, EncryptionMethod, SecureString, decrypt_with_method,
+    derive_key, encrypt_with_method, generate_salt,
+};
+use crate::domain::{RecoveryMetadata, Vault};
 use crate::utils::error::{Error, Result};
 
 /// Magic bytes to identify vault files
 pub const VAULT_MAGIC: &[u8; 4] = b"VALT";
 
 /// Current file format version
-pub const VAULT_VERSION: u16 = 1;
+pub const VAULT_VERSION: u16 = 2;
+const VAULT_VERSION_V1: u16 = 1;
 const MAX_HEADER_SIZE: usize = 64 * 1024;
 const MAX_PAYLOAD_SIZE: usize = 16 * 1024 * 1024;
 
@@ -35,22 +38,69 @@ pub struct VaultFileHeader {
     pub security_question_count: u8,
     /// Security question texts (for display)
     pub security_questions: Vec<String>,
+    /// Encryption method used for the vault payload
+    pub encryption_method: EncryptionMethod,
+    /// Recovery metadata for forgot-password flow (optional)
+    pub recovery_metadata: Option<RecoveryMetadata>,
 }
 
 impl VaultFileHeader {
     /// Create a header from a vault
-    pub fn from_vault(vault: &Vault, has_keyfile: bool) -> Self {
+    pub fn from_vault(
+        vault: &Vault,
+        has_keyfile: bool,
+        encryption_method: EncryptionMethod,
+        recovery_metadata: Option<RecoveryMetadata>,
+    ) -> Self {
+        let question_texts = if let Some(metadata) = recovery_metadata.as_ref() {
+            metadata
+                .questions
+                .iter()
+                .map(|q| q.question.clone())
+                .collect::<Vec<_>>()
+        } else {
+            vault
+                .security_questions
+                .iter()
+                .map(|q| q.question.clone())
+                .collect::<Vec<_>>()
+        };
+
         Self {
             vault_id: vault.id,
             vault_name: vault.name.clone(),
             created_at: vault.created_at,
             has_keyfile,
-            security_question_count: vault.security_questions.len() as u8,
-            security_questions: vault
-                .security_questions
-                .iter()
-                .map(|q| q.question.clone())
-                .collect(),
+            security_question_count: question_texts.len() as u8,
+            security_questions: question_texts,
+            encryption_method,
+            recovery_metadata,
+        }
+    }
+}
+
+/// Legacy header format for vault version 1.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct VaultFileHeaderV1 {
+    pub vault_id: Uuid,
+    pub vault_name: String,
+    pub created_at: DateTime<Utc>,
+    pub has_keyfile: bool,
+    pub security_question_count: u8,
+    pub security_questions: Vec<String>,
+}
+
+impl From<VaultFileHeaderV1> for VaultFileHeader {
+    fn from(v1: VaultFileHeaderV1) -> Self {
+        Self {
+            vault_id: v1.vault_id,
+            vault_name: v1.vault_name,
+            created_at: v1.created_at,
+            has_keyfile: v1.has_keyfile,
+            security_question_count: v1.security_question_count,
+            security_questions: v1.security_questions,
+            encryption_method: EncryptionMethod::Aes256Gcm,
+            recovery_metadata: None,
         }
     }
 }
@@ -77,6 +127,25 @@ impl VaultFile {
         keyfile: Option<&[u8]>,
         params: Argon2Params,
     ) -> Result<Self> {
+        Self::new_with_options(
+            vault,
+            password,
+            keyfile,
+            params,
+            EncryptionMethod::Aes256Gcm,
+            None,
+        )
+    }
+
+    /// Create a new vault file with explicit encryption/recovery options.
+    pub fn new_with_options(
+        vault: &Vault,
+        password: &SecureString,
+        keyfile: Option<&[u8]>,
+        params: Argon2Params,
+        encryption_method: EncryptionMethod,
+        recovery_metadata: Option<RecoveryMetadata>,
+    ) -> Result<Self> {
         let salt = generate_salt();
         let key = derive_key(password, keyfile, &salt, &params)?;
 
@@ -85,9 +154,15 @@ impl VaultFile {
             .map_err(|e| Error::Encryption(format!("Serialization failed: {}", e)))?;
 
         // Encrypt the vault data
-        let encrypted_payload = encrypt(&vault_bytes, &key, salt, params)?;
+        let encrypted_payload =
+            encrypt_with_method(encryption_method, &vault_bytes, &key, salt, params)?;
 
-        let header = VaultFileHeader::from_vault(vault, keyfile.is_some());
+        let header = VaultFileHeader::from_vault(
+            vault,
+            keyfile.is_some(),
+            encryption_method,
+            recovery_metadata,
+        );
 
         Ok(Self {
             header,
@@ -103,6 +178,25 @@ impl VaultFile {
         salt: &[u8; 32],
         has_keyfile: bool,
     ) -> Result<Self> {
+        Self::new_with_key_options(
+            vault,
+            key,
+            salt,
+            has_keyfile,
+            EncryptionMethod::Aes256Gcm,
+            None,
+        )
+    }
+
+    /// Create a vault file with explicit header options using an existing key.
+    pub fn new_with_key_options(
+        vault: Vault,
+        key: &[u8; 32],
+        salt: &[u8; 32],
+        has_keyfile: bool,
+        encryption_method: EncryptionMethod,
+        recovery_metadata: Option<RecoveryMetadata>,
+    ) -> Result<Self> {
         let salt = *salt; // Use provided salt instead of generating new one
         let params = Argon2Params::default();
 
@@ -111,9 +205,11 @@ impl VaultFile {
             .map_err(|e| Error::Encryption(format!("Serialization failed: {}", e)))?;
 
         // Encrypt the vault data
-        let encrypted_payload = encrypt(&vault_bytes, key, salt, params)?;
+        let encrypted_payload =
+            encrypt_with_method(encryption_method, &vault_bytes, key, salt, params)?;
 
-        let header = VaultFileHeader::from_vault(&vault, has_keyfile);
+        let header =
+            VaultFileHeader::from_vault(&vault, has_keyfile, encryption_method, recovery_metadata);
 
         Ok(Self {
             header,
@@ -130,7 +226,8 @@ impl VaultFile {
             &self.encrypted_payload.argon2_params,
         )?;
 
-        let vault_bytes = decrypt(&self.encrypted_payload, &key)?;
+        let vault_bytes =
+            decrypt_with_method(self.header.encryption_method, &self.encrypted_payload, &key)?;
 
         bincode::deserialize(&vault_bytes).map_err(|_| Error::Decryption)
     }
@@ -149,7 +246,8 @@ impl VaultFile {
             &self.encrypted_payload.argon2_params,
         )?;
 
-        let vault_bytes = decrypt(&self.encrypted_payload, &key)?;
+        let vault_bytes =
+            decrypt_with_method(self.header.encryption_method, &self.encrypted_payload, &key)?;
 
         let vault: Vault = bincode::deserialize(&vault_bytes).map_err(|_| Error::Decryption)?;
 
@@ -199,8 +297,21 @@ impl VaultFile {
         let mut header_bytes = vec![0u8; header_len];
         file.read_exact(&mut header_bytes)
             .map_err(|e| Error::FileRead(path.to_path_buf(), e))?;
-        let header: VaultFileHeader = bincode::deserialize(&header_bytes)
-            .map_err(|e| Error::InvalidVaultFormat(format!("Invalid header: {}", e)))?;
+        let header: VaultFileHeader = match version {
+            VAULT_VERSION_V1 => {
+                let old: VaultFileHeaderV1 = bincode::deserialize(&header_bytes)
+                    .map_err(|e| Error::InvalidVaultFormat(format!("Invalid v1 header: {}", e)))?;
+                old.into()
+            }
+            VAULT_VERSION => bincode::deserialize(&header_bytes)
+                .map_err(|e| Error::InvalidVaultFormat(format!("Invalid header: {}", e)))?,
+            _ => {
+                return Err(Error::InvalidVaultFormat(format!(
+                    "Unsupported vault version: {}",
+                    version
+                )));
+            }
+        };
 
         // Read encrypted payload length
         let mut payload_len_bytes = [0u8; 4];
@@ -493,7 +604,12 @@ mod tests {
     fn test_read_rejects_oversized_payload() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("oversized-payload.vault");
-        let header = VaultFileHeader::from_vault(&Vault::new("Payload Test"), false);
+        let header = VaultFileHeader::from_vault(
+            &Vault::new("Payload Test"),
+            false,
+            EncryptionMethod::Aes256Gcm,
+            None,
+        );
         let header_bytes = bincode::serialize(&header).unwrap();
         let mut bytes = Vec::new();
         bytes.extend_from_slice(VAULT_MAGIC);
@@ -523,5 +639,44 @@ mod tests {
 
         let mode = fs::metadata(path).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o600);
+    }
+
+    #[test]
+    fn test_read_v1_header_compatibility() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("legacy-v1.vault");
+
+        let vault = Vault::new("Legacy Vault");
+        let password = SecureString::from_str("legacy-password");
+        let vault_file = VaultFile::new(&vault, &password, None).unwrap();
+
+        let legacy_header = VaultFileHeaderV1 {
+            vault_id: vault.id,
+            vault_name: vault.name.clone(),
+            created_at: vault.created_at,
+            has_keyfile: false,
+            security_question_count: 0,
+            security_questions: vec![],
+        };
+        let header_bytes = bincode::serialize(&legacy_header).unwrap();
+        let payload_bytes = bincode::serialize(&vault_file.encrypted_payload).unwrap();
+
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(VAULT_MAGIC);
+        bytes.extend_from_slice(&VAULT_VERSION_V1.to_le_bytes());
+        bytes.extend_from_slice(&(header_bytes.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(&header_bytes);
+        bytes.extend_from_slice(&(payload_bytes.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(&payload_bytes);
+        fs::write(&path, bytes).unwrap();
+
+        let loaded = VaultFile::read(&path).expect("v1 vault should read");
+        assert_eq!(loaded.header.vault_name, "Legacy Vault");
+        assert_eq!(loaded.header.encryption_method, EncryptionMethod::Aes256Gcm);
+        assert!(loaded.header.recovery_metadata.is_none());
+        let decrypted = loaded
+            .decrypt(&password, None)
+            .expect("v1 vault should decrypt");
+        assert_eq!(decrypted.name, "Legacy Vault");
     }
 }

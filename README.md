@@ -9,6 +9,7 @@ A secure terminal-based vault application for storing sensitive data like seed p
   - Argon2id key derivation (memory-hard, GPU-resistant)
   - Secure memory handling with automatic zeroization
   - Optional keyfile support for two-factor security
+  - Optional security-question recovery with progressive password hints
 
 - **🎨 Modern TUI Aesthetics**
   - Catppuccin themes (Latte, Frappé, Macchiato, Mocha)
@@ -28,6 +29,12 @@ A secure terminal-based vault application for storing sensitive data like seed p
   - Passwords with optional TOTP
   - Secure notes
   - API keys with expiration
+  - Custom entries with typed dynamic fields (`text`, `secret`, `url`, `number`)
+
+- **⚙️ Account & Vault Settings**
+  - Change master password from Settings
+  - Configure or disable security-question recovery from Settings
+  - Encryption method selector shown during vault creation (currently AES-256-GCM)
 
 - **🛡️ Security Features**
   - Content masking by default (`****`)
@@ -95,6 +102,15 @@ RUST_LOG=vault=debug vault
 | `r` | Toggle reveal |
 | `f` | Toggle favorite |
 
+### Login / Recovery
+
+| Key | Action |
+|-----|--------|
+| `f` (in password prompt) | Start forgot-password recovery |
+| `Esc` | Cancel login or recovery input |
+
+For custom entries, fill the form field as `type:key=value;type:key=value` (example: `text:username=alice;secret:token=abc123`).
+
 ### System
 
 | Key | Action |
@@ -119,7 +135,8 @@ Vault files (`.vault`) use a custom binary format:
 ├─────────────────────────────────────┤
 │ Header (bincode-serialized):        │
 │   - Vault ID, Name, Created         │
-│   - Security questions (optional)   │
+│   - Encryption method metadata      │
+│   - Recovery metadata (optional)    │
 ├─────────────────────────────────────┤
 │ Encrypted Payload:                  │
 │   - Nonce (12 bytes)                │

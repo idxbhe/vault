@@ -27,6 +27,7 @@ pub enum FormField {
     ApiKey,
     Service,
     Content,
+    CustomFields,
     Notes,
 }
 
@@ -44,6 +45,7 @@ impl FormField {
             FormField::ApiKey => "API Key",
             FormField::Service => "Service",
             FormField::Content => "Content",
+            FormField::CustomFields => "Fields (type:key=value; ...)",
             FormField::Notes => "Notes",
         }
     }
@@ -225,6 +227,9 @@ fn get_fields_for_kind(kind: ItemKind) -> Vec<FormField> {
         ItemKind::ApiKey => {
             fields.push(FormField::Service);
             fields.push(FormField::ApiKey);
+        }
+        ItemKind::Custom => {
+            fields.push(FormField::CustomFields);
         }
     }
 
@@ -442,6 +447,14 @@ mod tests {
         let form = EditFormState::new(ItemKind::CryptoSeed, true);
         assert!(form.fields.contains(&FormField::SeedPhrase));
         assert!(form.fields.contains(&FormField::DerivationPath));
+    }
+
+    #[test]
+    fn test_form_fields_custom() {
+        let form = EditFormState::new(ItemKind::Custom, true);
+        assert!(form.fields.contains(&FormField::Title));
+        assert!(form.fields.contains(&FormField::CustomFields));
+        assert!(form.fields.contains(&FormField::Notes));
     }
 
     #[test]

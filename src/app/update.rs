@@ -8,6 +8,11 @@ use std::time::Duration;
 use uuid::Uuid;
 
 use crate::domain::Item;
+use crate::ui::screens::login::CreateVaultStep;
+use crate::ui::screens::{
+    ChangePasswordAction, ChangePasswordStep, RecoveryQuestionDraft, RecoverySetupAction,
+    RecoverySetupStep, SecurityActionState, SettingKind, apply_setting, get_current_sub_index,
+};
 
 use super::effect::Effect;
 use super::message::{ConfigUpdate, ItemUpdates, Message, ScrollDirection};
@@ -31,6 +36,12 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
     match message {
         // === Navigation ===
         Message::Navigate(screen) => {
+            if state.screen == Screen::Settings && screen != Screen::Settings {
+                state.settings_state.cancel_edit();
+                state.settings_state.security_action = None;
+                state.ui_state.input_buffer.clear();
+                state.ui_state.input_buffer.masked = false;
+            }
             state.screen = screen;
             Effect::none()
         }
@@ -85,6 +96,8 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
                         key,
                         salt,
                         has_keyfile: vs.has_keyfile,
+                        encryption_method: vs.encryption_method,
+                        recovery_metadata: vs.recovery_metadata.clone(),
                     }
                 } else {
                     transition_to_locked_state(state);
@@ -104,6 +117,8 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
                     key: vs.encryption_key,
                     salt: vs.salt,
                     has_keyfile: vs.has_keyfile,
+                    encryption_method: vs.encryption_method,
+                    recovery_metadata: vs.recovery_metadata.clone(),
                 }
             } else {
                 Effect::none()
@@ -127,12 +142,11 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
         // === Login Flow ===
         Message::StartCreateVault => {
             // Switch login screen to "creating" mode
+            state.login_screen.reset_create_draft();
             state.login_screen.creating_vault = true;
             state.login_screen.entering_password = false;
             state.login_screen.entering_keyfile_path = false;
-            state.login_screen.create_step = 0;
-            state.login_screen.new_vault_name.clear();
-            state.login_screen.new_vault_password.clear();
+            state.login_screen.password_recovery = None;
             state.login_screen.pending_unlock_password = None;
             state.login_screen.error_message = None;
             state.ui_state.input_buffer.clear();
@@ -142,37 +156,88 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
 
         Message::EnterPasswordMode => {
             // Switch login screen to "password entry" mode
-            state.login_screen.entering_password = true;
-            state.login_screen.entering_keyfile_path = false;
-            state.login_screen.creating_vault = false;
-            state.login_screen.pending_unlock_password = None;
-            state.login_screen.error_message = None; // Clear any previous error
+            state.login_screen.enter_password_mode();
             state.ui_state.input_buffer.clear();
             state.ui_state.input_buffer.masked = true; // Password is masked
             Effect::none()
         }
 
+        Message::StartPasswordRecovery => {
+            if !state.login_screen.entering_password {
+                return Effect::none();
+            }
+
+            let selected_idx = state.login_screen.selected_vault;
+            let Some(entry) = state.registry.entries.get(selected_idx) else {
+                state.login_screen.error_message = Some("No vault selected".to_string());
+                return Effect::none();
+            };
+
+            let header = match crate::storage::vault_file::read_header(&entry.path) {
+                Ok(header) => header,
+                Err(e) => {
+                    state.login_screen.error_message =
+                        Some(format!("Failed to read vault header: {}", e));
+                    return Effect::none();
+                }
+            };
+
+            let Some(recovery_metadata) = header.recovery_metadata else {
+                state.login_screen.error_message =
+                    Some("Recovery is not configured for this vault".to_string());
+                return Effect::none();
+            };
+
+            if !recovery_metadata.is_configured() {
+                state.login_screen.error_message =
+                    Some("Recovery metadata is incomplete for this vault".to_string());
+                return Effect::none();
+            }
+
+            state.login_screen.password_recovery =
+                Some(crate::ui::screens::login::PasswordRecoverySession::new(
+                    entry.name.clone(),
+                    entry.path.clone(),
+                    recovery_metadata,
+                ));
+            state.login_screen.error_message = None;
+            state.screen = Screen::PasswordRecovery;
+            state.ui_state.input_buffer.clear();
+            state.ui_state.input_buffer.masked = true;
+            Effect::none()
+        }
+
         Message::LoginPrevStep => {
             // Go back to previous step in vault creation
-            if state.login_screen.creating_vault && state.login_screen.create_step > 0 {
-                state.login_screen.create_step -= 1;
-
-                // Restore appropriate input buffer for the previous step
-                state.ui_state.input_buffer.text.clear();
-                if state.login_screen.create_step == 0 {
-                    // Going back to name step - restore the name
-                    state.ui_state.input_buffer.text = state.login_screen.new_vault_name.clone();
-                    state.ui_state.input_buffer.masked = false;
-                } else {
-                    // Going back to password step - don't restore password for security
-                    state.ui_state.input_buffer.masked = true;
+            if state.login_screen.creating_vault {
+                if let Some(prev) = previous_create_step(&state.login_screen) {
+                    state.login_screen.create_step = prev;
+                    prepare_input_for_create_step(state);
                 }
-                state.ui_state.input_buffer.cursor = state.ui_state.input_buffer.text.len();
             }
             Effect::none()
         }
 
         Message::CancelInput => {
+            if state.screen == Screen::PasswordRecovery {
+                state.screen = Screen::Login;
+                state.login_screen.password_recovery = None;
+                state.login_screen.entering_password = true;
+                state.login_screen.entering_keyfile_path = false;
+                state.login_screen.error_message = None;
+                state.ui_state.input_buffer.clear();
+                state.ui_state.input_buffer.masked = true;
+                return Effect::none();
+            }
+
+            if state.screen == Screen::Settings && state.settings_state.security_action.is_some() {
+                state.settings_state.security_action = None;
+                state.login_screen.error_message = None;
+                state.ui_state.input_buffer.clear();
+                state.ui_state.input_buffer.masked = false;
+                return Effect::none();
+            }
+
             if state.login_screen.entering_keyfile_path {
                 state.login_screen.entering_keyfile_path = false;
                 state.login_screen.entering_password = true;
@@ -186,13 +251,12 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
             // Cancel any input mode and return to vault selection
             state.login_screen.entering_password = false;
             state.login_screen.entering_keyfile_path = false;
-            state.login_screen.creating_vault = false;
-            state.login_screen.create_step = 0;
-            state.login_screen.new_vault_name.clear();
-            state.login_screen.new_vault_password.clear();
+            state.login_screen.reset_create_draft();
             state.login_screen.pending_unlock_password = None;
+            state.login_screen.password_recovery = None;
             state.login_screen.error_message = None;
             state.ui_state.input_buffer.clear();
+            state.ui_state.input_buffer.masked = false;
             state.ui_state.floating_window = None;
             Effect::none()
         }
@@ -275,11 +339,21 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
         }
 
         Message::SelectNextItem => {
+            if state.screen == Screen::Settings {
+                let max_items = crate::ui::screens::SettingKind::all().len();
+                let max_sub_items = settings_option_count(state, state.settings_state.selected);
+                state.settings_state.move_down(max_items, max_sub_items);
+                return Effect::none();
+            }
             select_adjacent_item(state, 1);
             Effect::none()
         }
 
         Message::SelectPrevItem => {
+            if state.screen == Screen::Settings {
+                state.settings_state.move_up();
+                return Effect::none();
+            }
             select_adjacent_item(state, -1);
             Effect::none()
         }
@@ -718,143 +792,52 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
 
         Message::InputSubmit => {
             // Context-aware submit handling
+            if state.screen == Screen::PasswordRecovery {
+                return handle_password_recovery_submit(state);
+            }
+
+            if state.screen == Screen::Settings {
+                if state.settings_state.security_action.is_some() {
+                    return handle_settings_security_action_submit(state);
+                }
+
+                if state.settings_state.editing {
+                    let selected = state.settings_state.selected;
+                    let chosen = state.settings_state.confirm_edit();
+                    apply_setting(state, selected, chosen);
+                    return Effect::WriteConfig;
+                }
+
+                match SettingKind::all().get(state.settings_state.selected) {
+                    Some(SettingKind::ChangeMasterPassword) => {
+                        state.settings_state.security_action = Some(
+                            SecurityActionState::ChangePassword(ChangePasswordAction::default()),
+                        );
+                        state.ui_state.input_buffer.clear();
+                        state.ui_state.input_buffer.masked = true;
+                        state.login_screen.error_message = None;
+                        return Effect::none();
+                    }
+                    Some(SettingKind::ConfigureRecovery) => {
+                        state.settings_state.security_action = Some(
+                            SecurityActionState::ConfigureRecovery(RecoverySetupAction::default()),
+                        );
+                        state.ui_state.input_buffer.clear();
+                        state.ui_state.input_buffer.masked = true;
+                        state.login_screen.error_message = None;
+                        return Effect::none();
+                    }
+                    _ => {}
+                }
+
+                let current_sub = get_current_sub_index(state, state.settings_state.selected);
+                state.settings_state.start_edit(current_sub);
+                return Effect::none();
+            }
+
             if state.screen == Screen::Login {
                 if state.login_screen.creating_vault {
-                    let input = state.ui_state.input_buffer.text.clone();
-
-                    match state.login_screen.create_step {
-                        0 => {
-                            // Step 0: Vault name
-                            if input.is_empty() {
-                                state.login_screen.error_message =
-                                    Some("Vault name cannot be empty".to_string());
-                                return Effect::none();
-                            }
-                            // Save name and move to password step
-                            state.login_screen.new_vault_name = input;
-                            state.login_screen.create_step = 1;
-                            state.login_screen.error_message = None;
-                            state.ui_state.input_buffer.clear();
-                            state.ui_state.input_buffer.masked = true;
-                            return Effect::none();
-                        }
-                        1 => {
-                            // Step 1: Password
-                            if input.len() < 4 {
-                                state.login_screen.error_message =
-                                    Some("Password must be at least 4 characters".to_string());
-                                return Effect::none();
-                            }
-                            // Save password and move to confirm step
-                            state.login_screen.new_vault_password = input;
-                            state.login_screen.create_step = 2;
-                            state.login_screen.error_message = None;
-                            state.ui_state.input_buffer.clear();
-                            return Effect::none();
-                        }
-                        2 => {
-                            // Step 2: Confirm password
-                            if input != state.login_screen.new_vault_password {
-                                state.login_screen.error_message =
-                                    Some("Passwords do not match".to_string());
-                                state.ui_state.input_buffer.clear();
-                                return Effect::none();
-                            }
-
-                            // Create the vault!
-                            let vault_name = state.login_screen.new_vault_name.clone();
-                            let password = state.login_screen.new_vault_password.clone();
-
-                            // Determine vault path using directories crate
-                            let vault_filename =
-                                format!("{}.vault", sanitize_vault_filename(&vault_name));
-                            let vault_path =
-                                directories::ProjectDirs::from("com", "vault", "vault")
-                                    .map(|dirs| dirs.data_dir().to_path_buf())
-                                    .unwrap_or_else(|| std::path::PathBuf::from(".").join(".vault"))
-                                    .join(&vault_filename);
-
-                            // Create vault directory if needed
-                            if let Some(parent) = vault_path.parent() {
-                                if let Err(e) = std::fs::create_dir_all(parent) {
-                                    state.login_screen.error_message =
-                                        Some(format!("Failed to create vault directory: {}", e));
-                                    return Effect::none();
-                                }
-                            }
-
-                            // Create new vault
-                            let vault = crate::domain::Vault::new(&vault_name);
-                            let secure_password =
-                                crate::crypto::SecureString::new(password.clone());
-
-                            // Try to create vault file
-                            match crate::storage::VaultFile::new(&vault, &secure_password, None) {
-                                Ok(vault_file) => {
-                                    // Extract salt before writing
-                                    let salt = vault_file.encrypted_payload.salt;
-
-                                    if let Err(e) = vault_file.write(&vault_path) {
-                                        state.login_screen.error_message =
-                                            Some(format!("Failed to save vault: {}", e));
-                                        return Effect::none();
-                                    }
-
-                                    // Get the encryption key
-                                    let (_, key) = match vault_file
-                                        .decrypt_with_key(&secure_password, None)
-                                    {
-                                        Ok(data) => data,
-                                        Err(e) => {
-                                            state.login_screen.error_message = Some(format!(
-                                                "Vault created but failed to initialize session key: {}",
-                                                e
-                                            ));
-                                            return Effect::none();
-                                        }
-                                    };
-
-                                    // Add to registry
-                                    state.registry.add_or_update(&vault_path, &vault_name);
-                                    if let Err(e) = state.registry.save() {
-                                        state.ui_state.notify(
-                                            format!(
-                                                "Vault created, but failed to update registry: {}",
-                                                e
-                                            ),
-                                            NotificationLevel::Warning,
-                                        );
-                                    }
-
-                                    // Reset login screen state
-                                    state.login_screen.creating_vault = false;
-                                    state.login_screen.create_step = 0;
-                                    state.login_screen.new_vault_name.clear();
-                                    state.login_screen.new_vault_password.clear();
-                                    state.login_screen.pending_unlock_password = None;
-                                    state.ui_state.input_buffer.clear();
-
-                                    // Set up vault state and transition to main (with salt)
-                                    state.vault_state =
-                                        Some(VaultState::new(vault, vault_path, key, salt, false));
-                                    state.mode = crate::app::AppMode::Unlocked;
-                                    state.screen = Screen::Main;
-
-                                    state.ui_state.notify(
-                                        "Vault created successfully!",
-                                        NotificationLevel::Success,
-                                    );
-                                }
-                                Err(e) => {
-                                    state.login_screen.error_message =
-                                        Some(format!("Failed to create vault: {}", e));
-                                }
-                            }
-                            return Effect::none();
-                        }
-                        _ => {}
-                    }
-                    return Effect::none();
+                    return handle_create_vault_submit(state);
                 } else if state.login_screen.entering_password {
                     // Submit password to unlock vault
                     let password = state.ui_state.input_buffer.text.trim().to_string();
@@ -1004,7 +987,15 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
 
                     // Create the item from form data
                     if let Some(ref mut vs) = state.vault_state {
-                        let item = create_item_from_form(&form);
+                        let item = match create_item_from_form(&form) {
+                            Ok(item) => item,
+                            Err(msg) => {
+                                state.ui_state.notify(msg, NotificationLevel::Error);
+                                state.ui_state.floating_window =
+                                    Some(FloatingWindow::NewItem { form });
+                                return Effect::none();
+                            }
+                        };
                         let id = item.id;
                         vs.vault.add_item(item);
                         vs.selected_item_id = Some(id);
@@ -1020,6 +1011,8 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
                             key: vs.encryption_key,
                             salt: vs.salt,
                             has_keyfile: vs.has_keyfile,
+                            encryption_method: vs.encryption_method,
+                            recovery_metadata: vs.recovery_metadata.clone(),
                         };
                     }
                 }
@@ -1042,7 +1035,15 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
                             };
 
                             // Apply updates
-                            let updates = create_updates_from_form(&form);
+                            let updates = match create_updates_from_form(&form) {
+                                Ok(updates) => updates,
+                                Err(msg) => {
+                                    state.ui_state.notify(msg, NotificationLevel::Error);
+                                    state.ui_state.floating_window =
+                                        Some(FloatingWindow::EditItem { item_id, form });
+                                    return Effect::none();
+                                }
+                            };
                             if let Some(item) = vs.vault.get_item_mut(item_id) {
                                 apply_item_updates(item, updates);
                             }
@@ -1060,6 +1061,8 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
                                 key: vs.encryption_key,
                                 salt: vs.salt,
                                 has_keyfile: vs.has_keyfile,
+                                encryption_method: vs.encryption_method,
+                                recovery_metadata: vs.recovery_metadata.clone(),
                             };
                         }
                     }
@@ -1428,6 +1431,854 @@ fn handle_scroll(state: &mut AppState, direction: ScrollDirection) {
     }
 }
 
+fn verify_master_credentials(
+    vault_state: &VaultState,
+    current_password: &str,
+    keyfile_path: Option<&str>,
+) -> std::result::Result<Option<Vec<u8>>, String> {
+    if current_password.trim().is_empty() {
+        return Err("Current password cannot be empty".to_string());
+    }
+
+    let keyfile_data = if vault_state.has_keyfile {
+        let Some(path) = keyfile_path else {
+            return Err("This vault requires a keyfile path".to_string());
+        };
+        let trimmed = path.trim();
+        if trimmed.is_empty() {
+            return Err("Keyfile path cannot be empty".to_string());
+        }
+        let keyfile = crate::crypto::KeyFile::load(trimmed)
+            .map_err(|e| format!("Failed to read keyfile: {}", e))?;
+        Some(keyfile.as_bytes().to_vec())
+    } else {
+        None
+    };
+
+    let secure_current = crate::crypto::SecureString::new(current_password.to_string());
+    let derived = crate::crypto::derive_key(
+        &secure_current,
+        keyfile_data.as_deref(),
+        &vault_state.salt,
+        &crate::crypto::Argon2Params::default(),
+    )
+    .map_err(|e| format!("Failed to verify credentials: {}", e))?;
+
+    if derived != vault_state.encryption_key {
+        return Err("Current password or keyfile is incorrect".to_string());
+    }
+
+    Ok(keyfile_data)
+}
+
+fn handle_settings_security_action_submit(state: &mut AppState) -> Effect {
+    let Some(action_state) = state.settings_state.security_action.clone() else {
+        return Effect::none();
+    };
+
+    let Some(vault_state) = state.vault_state.as_mut() else {
+        state.login_screen.error_message = Some("No vault is open".to_string());
+        state.settings_state.security_action = None;
+        return Effect::none();
+    };
+
+    let input = state.ui_state.input_buffer.text.clone();
+
+    match action_state {
+        SecurityActionState::ChangePassword(mut action) => match action.step {
+            ChangePasswordStep::CurrentPassword => {
+                if input.trim().is_empty() {
+                    state.login_screen.error_message =
+                        Some("Current password cannot be empty".to_string());
+                    return Effect::none();
+                }
+                action.current_password = Some(input);
+                action.step = if vault_state.has_keyfile {
+                    ChangePasswordStep::KeyfilePath
+                } else {
+                    ChangePasswordStep::NewPassword
+                };
+                state.ui_state.input_buffer.clear();
+                state.ui_state.input_buffer.masked = matches!(
+                    action.step,
+                    ChangePasswordStep::CurrentPassword
+                        | ChangePasswordStep::NewPassword
+                        | ChangePasswordStep::ConfirmPassword
+                );
+                state.login_screen.error_message = None;
+                state.settings_state.security_action =
+                    Some(SecurityActionState::ChangePassword(action));
+                return Effect::none();
+            }
+            ChangePasswordStep::KeyfilePath => {
+                if input.trim().is_empty() {
+                    state.login_screen.error_message =
+                        Some("Keyfile path cannot be empty".to_string());
+                    return Effect::none();
+                }
+                action.keyfile_path = input.trim().to_string();
+                action.step = ChangePasswordStep::NewPassword;
+                state.ui_state.input_buffer.clear();
+                state.ui_state.input_buffer.masked = true;
+                state.login_screen.error_message = None;
+                state.settings_state.security_action =
+                    Some(SecurityActionState::ChangePassword(action));
+                return Effect::none();
+            }
+            ChangePasswordStep::NewPassword => {
+                if input.len() < 4 {
+                    state.login_screen.error_message =
+                        Some("New password must be at least 4 characters".to_string());
+                    return Effect::none();
+                }
+                action.new_password = Some(input);
+                action.step = ChangePasswordStep::ConfirmPassword;
+                state.ui_state.input_buffer.clear();
+                state.ui_state.input_buffer.masked = true;
+                state.login_screen.error_message = None;
+                state.settings_state.security_action =
+                    Some(SecurityActionState::ChangePassword(action));
+                return Effect::none();
+            }
+            ChangePasswordStep::ConfirmPassword => {
+                let Some(current_password) = action.current_password.clone() else {
+                    state.login_screen.error_message =
+                        Some("Current password is missing".to_string());
+                    return Effect::none();
+                };
+                let Some(new_password) = action.new_password.clone() else {
+                    state.login_screen.error_message = Some("New password is missing".to_string());
+                    return Effect::none();
+                };
+                if input != new_password {
+                    state.login_screen.error_message =
+                        Some("New password confirmation does not match".to_string());
+                    state.ui_state.input_buffer.clear();
+                    return Effect::none();
+                }
+
+                let keyfile_data = match verify_master_credentials(
+                    vault_state,
+                    &current_password,
+                    if vault_state.has_keyfile {
+                        Some(action.keyfile_path.as_str())
+                    } else {
+                        None
+                    },
+                ) {
+                    Ok(data) => data,
+                    Err(msg) => {
+                        state.login_screen.error_message = Some(msg);
+                        return Effect::none();
+                    }
+                };
+
+                let new_secure_password = crate::crypto::SecureString::new(new_password);
+                let new_key = match crate::crypto::derive_key(
+                    &new_secure_password,
+                    keyfile_data.as_deref(),
+                    &vault_state.salt,
+                    &crate::crypto::Argon2Params::default(),
+                ) {
+                    Ok(k) => k,
+                    Err(e) => {
+                        state.login_screen.error_message =
+                            Some(format!("Failed to derive new key: {}", e));
+                        return Effect::none();
+                    }
+                };
+
+                vault_state.encryption_key = new_key;
+                vault_state.recovery_metadata = None;
+                vault_state.vault.security_questions.clear();
+                vault_state.mark_dirty();
+
+                state.settings_state.security_action = None;
+                state.ui_state.input_buffer.clear();
+                state.ui_state.input_buffer.masked = false;
+                state.login_screen.error_message =
+                    Some("Master password updated. Recovery has been reset.".to_string());
+                state.ui_state.notify(
+                    "Master password updated. Reconfigure recovery questions.",
+                    NotificationLevel::Success,
+                );
+
+                return Effect::WriteVaultFile {
+                    path: vault_state.vault_path.clone(),
+                    vault: vault_state.vault.clone(),
+                    key: vault_state.encryption_key,
+                    salt: vault_state.salt,
+                    has_keyfile: vault_state.has_keyfile,
+                    encryption_method: vault_state.encryption_method,
+                    recovery_metadata: vault_state.recovery_metadata.clone(),
+                };
+            }
+        },
+        SecurityActionState::ConfigureRecovery(mut action) => match action.step {
+            RecoverySetupStep::CurrentPassword => {
+                if input.trim().is_empty() {
+                    state.login_screen.error_message =
+                        Some("Current password cannot be empty".to_string());
+                    return Effect::none();
+                }
+                action.current_password = Some(input);
+                action.step = if vault_state.has_keyfile {
+                    RecoverySetupStep::KeyfilePath
+                } else {
+                    RecoverySetupStep::QuestionCount
+                };
+                state.ui_state.input_buffer.clear();
+                state.ui_state.input_buffer.masked = matches!(
+                    action.step,
+                    RecoverySetupStep::CurrentPassword | RecoverySetupStep::AnswerText
+                );
+                state.login_screen.error_message = None;
+                state.settings_state.security_action =
+                    Some(SecurityActionState::ConfigureRecovery(action));
+                return Effect::none();
+            }
+            RecoverySetupStep::KeyfilePath => {
+                if input.trim().is_empty() {
+                    state.login_screen.error_message =
+                        Some("Keyfile path cannot be empty".to_string());
+                    return Effect::none();
+                }
+                action.keyfile_path = input.trim().to_string();
+                action.step = RecoverySetupStep::QuestionCount;
+                state.ui_state.input_buffer.clear();
+                state.ui_state.input_buffer.masked = false;
+                state.login_screen.error_message = None;
+                state.settings_state.security_action =
+                    Some(SecurityActionState::ConfigureRecovery(action));
+                return Effect::none();
+            }
+            RecoverySetupStep::QuestionCount => {
+                let Ok(question_count) = input
+                    .trim()
+                    .parse::<u8>()
+                    .map_err(|_| ())
+                    .and_then(|n| if n <= 3 { Ok(n) } else { Err(()) })
+                else {
+                    state.login_screen.error_message =
+                        Some("Enter recovery question count from 0 to 3".to_string());
+                    return Effect::none();
+                };
+
+                let Some(current_password) = action.current_password.clone() else {
+                    state.login_screen.error_message =
+                        Some("Current password is missing".to_string());
+                    return Effect::none();
+                };
+
+                let keyfile_data = match verify_master_credentials(
+                    vault_state,
+                    &current_password,
+                    if vault_state.has_keyfile {
+                        Some(action.keyfile_path.as_str())
+                    } else {
+                        None
+                    },
+                ) {
+                    Ok(data) => data,
+                    Err(msg) => {
+                        state.login_screen.error_message = Some(msg);
+                        return Effect::none();
+                    }
+                };
+                action.keyfile_data = keyfile_data;
+                action.question_count = question_count;
+                action.questions.clear();
+                action.pending_question = None;
+
+                if question_count == 0 {
+                    vault_state.recovery_metadata = None;
+                    vault_state.vault.security_questions.clear();
+                    vault_state.mark_dirty();
+                    state.settings_state.security_action = None;
+                    state.ui_state.input_buffer.clear();
+                    state.ui_state.input_buffer.masked = false;
+                    state.login_screen.error_message =
+                        Some("Recovery disabled for this vault".to_string());
+                    state.ui_state.notify(
+                        "Recovery disabled for this vault",
+                        NotificationLevel::Success,
+                    );
+                    return Effect::WriteVaultFile {
+                        path: vault_state.vault_path.clone(),
+                        vault: vault_state.vault.clone(),
+                        key: vault_state.encryption_key,
+                        salt: vault_state.salt,
+                        has_keyfile: vault_state.has_keyfile,
+                        encryption_method: vault_state.encryption_method,
+                        recovery_metadata: vault_state.recovery_metadata.clone(),
+                    };
+                }
+
+                action.step = RecoverySetupStep::QuestionText;
+                state.ui_state.input_buffer.clear();
+                state.ui_state.input_buffer.masked = false;
+                state.login_screen.error_message = None;
+                state.settings_state.security_action =
+                    Some(SecurityActionState::ConfigureRecovery(action));
+                return Effect::none();
+            }
+            RecoverySetupStep::QuestionText => {
+                let question = input.trim();
+                if question.is_empty() {
+                    state.login_screen.error_message =
+                        Some("Security question cannot be empty".to_string());
+                    return Effect::none();
+                }
+                action.pending_question = Some(question.to_string());
+                action.step = RecoverySetupStep::AnswerText;
+                state.ui_state.input_buffer.clear();
+                state.ui_state.input_buffer.masked = true;
+                state.login_screen.error_message = None;
+                state.settings_state.security_action =
+                    Some(SecurityActionState::ConfigureRecovery(action));
+                return Effect::none();
+            }
+            RecoverySetupStep::AnswerText => {
+                if input.trim().is_empty() {
+                    state.login_screen.error_message =
+                        Some("Security answer cannot be empty".to_string());
+                    return Effect::none();
+                }
+                let Some(question) = action.pending_question.take() else {
+                    state.login_screen.error_message =
+                        Some("Question state missing, please try again".to_string());
+                    action.step = RecoverySetupStep::QuestionText;
+                    state.settings_state.security_action =
+                        Some(SecurityActionState::ConfigureRecovery(action));
+                    return Effect::none();
+                };
+                action.questions.push(RecoveryQuestionDraft {
+                    question,
+                    answer: input,
+                });
+
+                if action.questions.len() < action.question_count as usize {
+                    action.step = RecoverySetupStep::QuestionText;
+                    state.ui_state.input_buffer.clear();
+                    state.ui_state.input_buffer.masked = false;
+                    state.login_screen.error_message = None;
+                    state.settings_state.security_action =
+                        Some(SecurityActionState::ConfigureRecovery(action));
+                    return Effect::none();
+                }
+
+                let Some(current_password) = action.current_password.clone() else {
+                    state.login_screen.error_message =
+                        Some("Current password is missing".to_string());
+                    return Effect::none();
+                };
+                let secure_current_password =
+                    crate::crypto::SecureString::new(current_password.clone());
+                let qa_pairs = action
+                    .questions
+                    .iter()
+                    .map(|q| {
+                        (
+                            q.question.clone(),
+                            crate::crypto::SecureString::new(q.answer.clone()),
+                        )
+                    })
+                    .collect::<Vec<_>>();
+
+                let metadata = match crate::domain::RecoveryMetadata::build(
+                    qa_pairs,
+                    &secure_current_password,
+                    vault_state.encryption_method,
+                ) {
+                    Ok(m) => m,
+                    Err(e) => {
+                        state.login_screen.error_message =
+                            Some(format!("Failed to configure recovery: {}", e));
+                        return Effect::none();
+                    }
+                };
+
+                vault_state.vault.security_questions = metadata.questions.clone();
+                vault_state.recovery_metadata = Some(metadata);
+                vault_state.mark_dirty();
+
+                state.settings_state.security_action = None;
+                state.ui_state.input_buffer.clear();
+                state.ui_state.input_buffer.masked = false;
+                state.login_screen.error_message =
+                    Some("Recovery questions saved successfully".to_string());
+                state
+                    .ui_state
+                    .notify("Recovery questions saved", NotificationLevel::Success);
+
+                return Effect::WriteVaultFile {
+                    path: vault_state.vault_path.clone(),
+                    vault: vault_state.vault.clone(),
+                    key: vault_state.encryption_key,
+                    salt: vault_state.salt,
+                    has_keyfile: vault_state.has_keyfile,
+                    encryption_method: vault_state.encryption_method,
+                    recovery_metadata: vault_state.recovery_metadata.clone(),
+                };
+            }
+        },
+    }
+}
+
+fn parse_yes_no(input: &str) -> Option<bool> {
+    match input.trim().to_ascii_lowercase().as_str() {
+        "" => Some(false),
+        "y" | "yes" | "true" | "1" => Some(true),
+        "n" | "no" | "false" | "0" => Some(false),
+        _ => None,
+    }
+}
+
+fn settings_option_count(_state: &AppState, setting_index: usize) -> usize {
+    use crate::ui::screens::SettingKind;
+
+    let Some(setting) = SettingKind::all().get(setting_index) else {
+        return 0;
+    };
+
+    match setting {
+        SettingKind::Theme => crate::storage::ThemeChoice::all().len(),
+        SettingKind::AutoLock | SettingKind::ShowIcons | SettingKind::MouseEnabled => 2,
+        SettingKind::AutoLockTimeout => 5,
+        SettingKind::ClipboardTimeout => 5,
+        SettingKind::ChangeMasterPassword | SettingKind::ConfigureRecovery => 0,
+    }
+}
+
+fn previous_create_step(login: &crate::ui::screens::LoginScreen) -> Option<CreateVaultStep> {
+    match login.create_step {
+        CreateVaultStep::Name => None,
+        CreateVaultStep::Password => Some(CreateVaultStep::Name),
+        CreateVaultStep::ConfirmPassword => Some(CreateVaultStep::Password),
+        CreateVaultStep::EncryptionMethod => Some(CreateVaultStep::ConfirmPassword),
+        CreateVaultStep::KeyfileOption => Some(CreateVaultStep::EncryptionMethod),
+        CreateVaultStep::KeyfilePath => Some(CreateVaultStep::KeyfileOption),
+        CreateVaultStep::RecoveryQuestionCount => {
+            if login.new_vault_use_keyfile {
+                Some(CreateVaultStep::KeyfilePath)
+            } else {
+                Some(CreateVaultStep::KeyfileOption)
+            }
+        }
+        CreateVaultStep::RecoveryQuestion => Some(CreateVaultStep::RecoveryQuestionCount),
+        CreateVaultStep::RecoveryAnswer => Some(CreateVaultStep::RecoveryQuestion),
+        CreateVaultStep::ConfirmCreate => Some(CreateVaultStep::RecoveryQuestionCount),
+    }
+}
+
+fn prepare_input_for_create_step(state: &mut AppState) {
+    let (text, masked) = match state.login_screen.create_step {
+        CreateVaultStep::Name => (state.login_screen.new_vault_name.clone(), false),
+        CreateVaultStep::Password | CreateVaultStep::ConfirmPassword => (String::new(), true),
+        CreateVaultStep::EncryptionMethod => (
+            state
+                .login_screen
+                .new_vault_encryption_method
+                .profile_label(),
+            false,
+        ),
+        CreateVaultStep::KeyfileOption => (
+            if state.login_screen.new_vault_use_keyfile {
+                "yes".to_string()
+            } else {
+                "no".to_string()
+            },
+            false,
+        ),
+        CreateVaultStep::KeyfilePath => (state.login_screen.new_vault_keyfile_path.clone(), false),
+        CreateVaultStep::RecoveryQuestionCount => (
+            if state.login_screen.new_vault_recovery_question_count == 0 {
+                String::new()
+            } else {
+                state
+                    .login_screen
+                    .new_vault_recovery_question_count
+                    .to_string()
+            },
+            false,
+        ),
+        CreateVaultStep::RecoveryQuestion => (String::new(), false),
+        CreateVaultStep::RecoveryAnswer => (String::new(), true),
+        CreateVaultStep::ConfirmCreate => (String::new(), false),
+    };
+
+    state.ui_state.input_buffer.text = text;
+    state.ui_state.input_buffer.masked = masked;
+    state.ui_state.input_buffer.cursor = state.ui_state.input_buffer.text.len();
+}
+
+fn handle_password_recovery_submit(state: &mut AppState) -> Effect {
+    let answer_text = state.ui_state.input_buffer.text.clone();
+    if answer_text.trim().is_empty() {
+        state.login_screen.error_message = Some("Answer cannot be empty".to_string());
+        return Effect::none();
+    }
+
+    let submit_result = {
+        let Some(session) = state.login_screen.password_recovery.as_mut() else {
+            return Effect::none();
+        };
+
+        if session.is_locked_out() {
+            state.login_screen.error_message =
+                Some("Recovery is locked due to too many failed attempts".to_string());
+            return Effect::none();
+        }
+
+        match session.submit_answer(crate::crypto::SecureString::new(answer_text)) {
+            Ok(is_correct) => Ok((
+                is_correct,
+                session.is_complete(),
+                session.is_locked_out(),
+                session.remaining_attempts(),
+                session.latest_hint.clone(),
+                session.recovered_password.clone(),
+            )),
+            Err(e) => Err(e.to_string()),
+        }
+    };
+
+    state.ui_state.input_buffer.clear();
+    state.ui_state.input_buffer.masked = true;
+
+    match submit_result {
+        Ok((true, true, _, _, _, Some(password))) => {
+            state.login_screen.error_message =
+                Some("Recovery complete. Master password revealed below.".to_string());
+            state.ui_state.notify(
+                "Recovery complete: password fully revealed",
+                NotificationLevel::Success,
+            );
+            state.ui_state.notify(
+                format!("Recovered password: {}", password),
+                NotificationLevel::Info,
+            );
+        }
+        Ok((true, false, _, _, Some(_), _)) => {
+            state.login_screen.error_message =
+                Some("Correct answer. More characters are now revealed.".to_string());
+        }
+        Ok((false, _, true, _, _, _)) => {
+            state.login_screen.error_message = Some(
+                "Incorrect answer. Recovery locked after maximum failed attempts.".to_string(),
+            );
+        }
+        Ok((false, _, false, remaining, _, _)) => {
+            state.login_screen.error_message = Some(format!(
+                "Incorrect answer. {} attempts remaining.",
+                remaining
+            ));
+        }
+        Ok((_, _, _, _, _, None)) => {
+            state.login_screen.error_message =
+                Some("Recovery state is inconsistent for this vault".to_string());
+        }
+        Ok(_) => {
+            state.login_screen.error_message = Some("Recovery progress updated".to_string());
+        }
+        Err(e) => {
+            state.login_screen.error_message = Some(format!("Recovery failed: {}", e));
+        }
+    }
+
+    Effect::none()
+}
+
+fn handle_create_vault_submit(state: &mut AppState) -> Effect {
+    let input = state.ui_state.input_buffer.text.clone();
+
+    match state.login_screen.create_step {
+        CreateVaultStep::Name => {
+            let name = input.trim();
+            if name.is_empty() {
+                state.login_screen.error_message = Some("Vault name cannot be empty".to_string());
+                return Effect::none();
+            }
+            state.login_screen.new_vault_name = name.to_string();
+            state.login_screen.create_step = CreateVaultStep::Password;
+        }
+        CreateVaultStep::Password => {
+            if input.len() < 4 {
+                state.login_screen.error_message =
+                    Some("Password must be at least 4 characters".to_string());
+                return Effect::none();
+            }
+            state.login_screen.new_vault_password = input;
+            state.login_screen.create_step = CreateVaultStep::ConfirmPassword;
+        }
+        CreateVaultStep::ConfirmPassword => {
+            if input != state.login_screen.new_vault_password {
+                state.login_screen.error_message = Some("Passwords do not match".to_string());
+                state.ui_state.input_buffer.clear();
+                return Effect::none();
+            }
+            state.login_screen.create_step = CreateVaultStep::EncryptionMethod;
+        }
+        CreateVaultStep::EncryptionMethod => {
+            // Current implementation supports AES-256-GCM only.
+            state.login_screen.new_vault_encryption_method =
+                crate::crypto::EncryptionMethod::Aes256Gcm;
+            state.login_screen.create_step = CreateVaultStep::KeyfileOption;
+        }
+        CreateVaultStep::KeyfileOption => {
+            let Some(use_keyfile) = parse_yes_no(&input) else {
+                state.login_screen.error_message =
+                    Some("Enter yes/no for keyfile option".to_string());
+                return Effect::none();
+            };
+            state.login_screen.new_vault_use_keyfile = use_keyfile;
+            state.login_screen.create_step = if use_keyfile {
+                CreateVaultStep::KeyfilePath
+            } else {
+                CreateVaultStep::RecoveryQuestionCount
+            };
+        }
+        CreateVaultStep::KeyfilePath => {
+            let keyfile_path = input.trim();
+            if keyfile_path.is_empty() {
+                state.login_screen.error_message = Some("Keyfile path cannot be empty".to_string());
+                return Effect::none();
+            }
+            state.login_screen.new_vault_keyfile_path = keyfile_path.to_string();
+            state.login_screen.create_step = CreateVaultStep::RecoveryQuestionCount;
+        }
+        CreateVaultStep::RecoveryQuestionCount => {
+            let parsed = input
+                .trim()
+                .parse::<u8>()
+                .map_err(|_| ())
+                .and_then(|n| if n <= 3 { Ok(n) } else { Err(()) });
+            let Ok(count) = parsed else {
+                state.login_screen.error_message =
+                    Some("Enter number of security questions from 0 to 3".to_string());
+                return Effect::none();
+            };
+
+            state.login_screen.new_vault_recovery_question_count = count;
+            state.login_screen.new_vault_recovery_questions.clear();
+            state.login_screen.pending_recovery_question = None;
+            state.login_screen.create_step = if count == 0 {
+                CreateVaultStep::ConfirmCreate
+            } else {
+                CreateVaultStep::RecoveryQuestion
+            };
+        }
+        CreateVaultStep::RecoveryQuestion => {
+            let question = input.trim();
+            if question.is_empty() {
+                state.login_screen.error_message =
+                    Some("Security question cannot be empty".to_string());
+                return Effect::none();
+            }
+            state.login_screen.pending_recovery_question = Some(question.to_string());
+            state.login_screen.create_step = CreateVaultStep::RecoveryAnswer;
+        }
+        CreateVaultStep::RecoveryAnswer => {
+            if input.trim().is_empty() {
+                state.login_screen.error_message =
+                    Some("Security answer cannot be empty".to_string());
+                return Effect::none();
+            }
+
+            let Some(question) = state.login_screen.pending_recovery_question.take() else {
+                state.login_screen.error_message =
+                    Some("Missing question state. Re-enter question.".to_string());
+                state.login_screen.create_step = CreateVaultStep::RecoveryQuestion;
+                return Effect::none();
+            };
+
+            state.login_screen.new_vault_recovery_questions.push(
+                crate::ui::screens::login::SecurityQuestionDraft {
+                    question,
+                    answer: input,
+                },
+            );
+
+            state.login_screen.create_step =
+                if state.login_screen.new_vault_recovery_questions.len()
+                    < state.login_screen.new_vault_recovery_question_count as usize
+                {
+                    CreateVaultStep::RecoveryQuestion
+                } else {
+                    CreateVaultStep::ConfirmCreate
+                };
+        }
+        CreateVaultStep::ConfirmCreate => return finalize_create_vault(state),
+    }
+
+    state.login_screen.error_message = None;
+    prepare_input_for_create_step(state);
+    Effect::none()
+}
+
+fn finalize_create_vault(state: &mut AppState) -> Effect {
+    let vault_name = state.login_screen.new_vault_name.trim().to_string();
+    if vault_name.is_empty() {
+        state.login_screen.error_message = Some("Vault name cannot be empty".to_string());
+        return Effect::none();
+    }
+
+    let password = state.login_screen.new_vault_password.clone();
+    if password.len() < 4 {
+        state.login_screen.error_message =
+            Some("Password must be at least 4 characters".to_string());
+        return Effect::none();
+    }
+
+    let vault_filename = format!("{}.vault", sanitize_vault_filename(&vault_name));
+    let vault_path = directories::ProjectDirs::from("com", "vault", "vault")
+        .map(|dirs| dirs.data_dir().to_path_buf())
+        .unwrap_or_else(|| std::path::PathBuf::from(".").join(".vault"))
+        .join(&vault_filename);
+
+    if let Some(parent) = vault_path.parent() {
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            state.login_screen.error_message =
+                Some(format!("Failed to create vault directory: {}", e));
+            return Effect::none();
+        }
+    }
+
+    let secure_password = crate::crypto::SecureString::new(password);
+    let mut vault = crate::domain::Vault::new(&vault_name);
+    let encryption_method = state.login_screen.new_vault_encryption_method;
+
+    let mut keyfile_data: Option<Vec<u8>> = None;
+    if state.login_screen.new_vault_use_keyfile {
+        let keyfile_path = state.login_screen.new_vault_keyfile_path.trim().to_string();
+        if keyfile_path.is_empty() {
+            state.login_screen.error_message = Some("Keyfile path cannot be empty".to_string());
+            return Effect::none();
+        }
+
+        let keyfile_path_buf = std::path::PathBuf::from(&keyfile_path);
+        if keyfile_path_buf.exists() {
+            match crate::crypto::KeyFile::load(&keyfile_path_buf) {
+                Ok(keyfile) => keyfile_data = Some(keyfile.as_bytes().to_vec()),
+                Err(e) => {
+                    state.login_screen.error_message = Some(format!("Invalid keyfile: {}", e));
+                    return Effect::none();
+                }
+            }
+        } else {
+            let generated = crate::crypto::KeyFile::generate();
+            if let Err(e) = generated.save(&keyfile_path_buf) {
+                state.login_screen.error_message = Some(format!("Failed to create keyfile: {}", e));
+                return Effect::none();
+            }
+            keyfile_data = Some(generated.as_bytes().to_vec());
+            state.ui_state.notify(
+                format!("Generated keyfile at {}", keyfile_path_buf.display()),
+                NotificationLevel::Info,
+            );
+        }
+    }
+
+    let recovery_metadata = if state.login_screen.new_vault_recovery_question_count > 0 {
+        let question_answers = state
+            .login_screen
+            .new_vault_recovery_questions
+            .iter()
+            .map(|qa| {
+                (
+                    qa.question.clone(),
+                    crate::crypto::SecureString::new(qa.answer.clone()),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        match crate::domain::RecoveryMetadata::build(
+            question_answers,
+            &secure_password,
+            encryption_method,
+        ) {
+            Ok(metadata) => {
+                vault.security_questions = metadata.questions.clone();
+                Some(metadata)
+            }
+            Err(e) => {
+                state.login_screen.error_message =
+                    Some(format!("Failed to configure recovery: {}", e));
+                return Effect::none();
+            }
+        }
+    } else {
+        None
+    };
+
+    let has_keyfile = keyfile_data.is_some();
+    let vault_file = match crate::storage::VaultFile::new_with_options(
+        &vault,
+        &secure_password,
+        keyfile_data.as_deref(),
+        crate::crypto::Argon2Params::default(),
+        encryption_method,
+        recovery_metadata.clone(),
+    ) {
+        Ok(file) => file,
+        Err(e) => {
+            state.login_screen.error_message = Some(format!("Failed to create vault: {}", e));
+            return Effect::none();
+        }
+    };
+
+    let salt = vault_file.encrypted_payload.salt;
+    if let Err(e) = vault_file.write(&vault_path) {
+        state.login_screen.error_message = Some(format!("Failed to save vault: {}", e));
+        return Effect::none();
+    }
+
+    let (_, key) = match vault_file.decrypt_with_key(&secure_password, keyfile_data.as_deref()) {
+        Ok(data) => data,
+        Err(e) => {
+            state.login_screen.error_message = Some(format!(
+                "Vault created but failed to initialize session key: {}",
+                e
+            ));
+            return Effect::none();
+        }
+    };
+
+    state.registry.add_or_update(&vault_path, &vault_name);
+    if let Err(e) = state.registry.save() {
+        state.ui_state.notify(
+            format!("Vault created, but failed to update registry: {}", e),
+            NotificationLevel::Warning,
+        );
+    }
+
+    state.login_screen.reset_create_draft();
+    state.login_screen.entering_password = false;
+    state.login_screen.entering_keyfile_path = false;
+    state.login_screen.pending_unlock_password = None;
+    state.login_screen.error_message = None;
+    state.ui_state.input_buffer.clear();
+    state.ui_state.input_buffer.masked = true;
+
+    state.vault_state = Some(VaultState::new(
+        vault,
+        vault_path,
+        key,
+        salt,
+        has_keyfile,
+        encryption_method,
+        recovery_metadata,
+    ));
+    state.mode = crate::app::AppMode::Unlocked;
+    state.screen = Screen::Main;
+
+    state
+        .ui_state
+        .notify("Vault created successfully!", NotificationLevel::Success);
+
+    Effect::none()
+}
+
 fn transition_to_locked_state(state: &mut AppState) {
     state.vault_state = None;
     state.pending_lock = false;
@@ -1438,13 +2289,18 @@ fn transition_to_locked_state(state: &mut AppState) {
     state.clipboard_state.clear();
     state.login_screen.entering_password = false;
     state.login_screen.entering_keyfile_path = false;
-    state.login_screen.creating_vault = false;
+    state.login_screen.reset_create_draft();
+    state.login_screen.password_recovery = None;
     state.login_screen.pending_unlock_password = None;
     state.login_screen.error_message = None;
+    state.settings_state.security_action = None;
+    state.settings_state.cancel_edit();
 }
 
 /// Create a new item from form data
-fn create_item_from_form(form: &crate::ui::widgets::EditFormState) -> Item {
+fn create_item_from_form(
+    form: &crate::ui::widgets::EditFormState,
+) -> std::result::Result<Item, String> {
     use crate::domain::ItemContent;
     use crate::ui::widgets::FormField;
 
@@ -1506,15 +2362,22 @@ fn create_item_from_form(form: &crate::ui::widgets::EditFormState) -> Item {
                 .map(|s| s.to_string()),
             expires_at: None,
         },
+        crate::domain::ItemKind::Custom => ItemContent::Custom {
+            fields: parse_custom_fields(
+                form.get_value(&FormField::CustomFields).unwrap_or_default(),
+            )?,
+        },
     };
 
     let mut item = Item::new(&title, form.kind, content);
     item.notes = notes;
-    item
+    Ok(item)
 }
 
 /// Create item updates from form data
-fn create_updates_from_form(form: &crate::ui::widgets::EditFormState) -> ItemUpdates {
+fn create_updates_from_form(
+    form: &crate::ui::widgets::EditFormState,
+) -> std::result::Result<ItemUpdates, String> {
     use crate::domain::ItemContent;
     use crate::ui::widgets::FormField;
 
@@ -1574,14 +2437,77 @@ fn create_updates_from_form(form: &crate::ui::widgets::EditFormState) -> ItemUpd
                 .map(|s| s.to_string()),
             expires_at: None,
         }),
+        crate::domain::ItemKind::Custom => Some(ItemContent::Custom {
+            fields: parse_custom_fields(
+                form.get_value(&FormField::CustomFields).unwrap_or_default(),
+            )?,
+        }),
     };
 
-    ItemUpdates {
+    Ok(ItemUpdates {
         title,
         content,
         notes,
         tags: None,
         favorite: None,
+    })
+}
+
+fn parse_custom_fields(
+    input: &str,
+) -> std::result::Result<Vec<crate::domain::CustomField>, String> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return Ok(vec![]);
+    }
+
+    trimmed
+        .split(';')
+        .map(str::trim)
+        .filter(|entry| !entry.is_empty())
+        .map(parse_single_custom_field)
+        .collect()
+}
+
+fn parse_single_custom_field(
+    input: &str,
+) -> std::result::Result<crate::domain::CustomField, String> {
+    let Some((raw_type, key_value)) = input.split_once(':') else {
+        return Err(format!(
+            "Invalid custom field format '{input}'. Use type:key=value"
+        ));
+    };
+    let field_type = parse_custom_field_type(raw_type.trim())?;
+
+    let Some((raw_key, raw_value)) = key_value.split_once('=') else {
+        return Err(format!(
+            "Invalid custom field format '{input}'. Use type:key=value"
+        ));
+    };
+
+    let key = raw_key.trim();
+    if key.is_empty() {
+        return Err("Custom field key cannot be empty".to_string());
+    }
+
+    Ok(crate::domain::CustomField {
+        key: key.to_string(),
+        value: raw_value.trim().to_string(),
+        field_type,
+    })
+}
+
+fn parse_custom_field_type(
+    raw: &str,
+) -> std::result::Result<crate::domain::CustomFieldType, String> {
+    match raw.to_ascii_lowercase().as_str() {
+        "text" => Ok(crate::domain::CustomFieldType::Text),
+        "secret" => Ok(crate::domain::CustomFieldType::Secret),
+        "url" => Ok(crate::domain::CustomFieldType::Url),
+        "number" => Ok(crate::domain::CustomFieldType::Number),
+        _ => Err(format!(
+            "Unsupported custom field type '{raw}'. Use text, secret, url, or number"
+        )),
     }
 }
 
@@ -1646,6 +2572,8 @@ mod tests {
             [0u8; 32],
             [0u8; 32], // salt
             false,
+            crate::crypto::EncryptionMethod::Aes256Gcm,
+            None,
         ));
         state.mode = AppMode::Unlocked;
         state.screen = Screen::Main;
@@ -1958,5 +2886,50 @@ mod tests {
         assert!(state.login_screen.pending_unlock_password.is_none());
         assert!(state.ui_state.input_buffer.masked);
         assert!(state.ui_state.input_buffer.text.is_empty());
+    }
+
+    #[test]
+    fn test_parse_custom_fields_success() {
+        let parsed =
+            parse_custom_fields("text:username=alice;secret:token=abc123;number:port=443").unwrap();
+        assert_eq!(parsed.len(), 3);
+        assert_eq!(parsed[0].key, "username");
+        assert_eq!(parsed[1].field_type, crate::domain::CustomFieldType::Secret);
+        assert_eq!(parsed[2].value, "443");
+    }
+
+    #[test]
+    fn test_parse_custom_fields_rejects_invalid_type() {
+        let err = parse_custom_fields("unknown:key=value")
+            .expect_err("expected unsupported type to return an error");
+        assert!(err.contains("Unsupported custom field type"));
+    }
+
+    #[test]
+    fn test_create_custom_item_from_form() {
+        let mut form =
+            crate::ui::widgets::EditFormState::new(crate::domain::ItemKind::Custom, true);
+        let title_idx = form
+            .fields
+            .iter()
+            .position(|f| *f == crate::ui::widgets::FormField::Title)
+            .unwrap();
+        let fields_idx = form
+            .fields
+            .iter()
+            .position(|f| *f == crate::ui::widgets::FormField::CustomFields)
+            .unwrap();
+
+        form.values[title_idx] = "Infra".to_string();
+        form.values[fields_idx] = "text:role=admin;secret:token=xyz".to_string();
+
+        let item = create_item_from_form(&form).expect("custom form should be valid");
+        match item.content {
+            crate::domain::ItemContent::Custom { fields } => {
+                assert_eq!(fields.len(), 2);
+                assert_eq!(fields[1].field_type, crate::domain::CustomFieldType::Secret);
+            }
+            other => panic!("expected custom content, got {:?}", other),
+        }
     }
 }

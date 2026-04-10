@@ -11,5 +11,7 @@ pub use export::{ExportFormat, ExportScreen, ExportStatus, render as render_expo
 pub use login::{LoginScreen, render as render_login};
 pub use main::{MainScreen, render as render_main};
 pub use settings::{
-    SettingKind, SettingsScreen, apply_setting, get_current_sub_index, render as render_settings,
+    ChangePasswordAction, ChangePasswordStep, RecoveryQuestionDraft, RecoverySetupAction,
+    RecoverySetupStep, SecurityActionState, SettingKind, SettingsScreen, apply_setting,
+    get_current_sub_index, render as render_settings,
 };

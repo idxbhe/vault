@@ -2,6 +2,8 @@
 //!
 //! The entry point for the application where users select or create a vault.
 
+use std::path::PathBuf;
+
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
@@ -10,11 +12,107 @@ use ratatui::{
     widgets::{Block, Borders, Clear, List, ListItem, Paragraph},
 };
 
-use crate::app::AppState;
-use crate::crypto::SecureString;
+use crate::app::{AppState, Screen};
+use crate::crypto::{EncryptionMethod, SecureString};
+use crate::domain::RecoveryMetadata;
 use crate::storage::VaultRegistryEntry;
 use crate::ui::theme::ThemePalette;
 use crate::utils::icons;
+
+/// Current step in the create-vault wizard.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CreateVaultStep {
+    #[default]
+    Name,
+    Password,
+    ConfirmPassword,
+    EncryptionMethod,
+    KeyfileOption,
+    KeyfilePath,
+    RecoveryQuestionCount,
+    RecoveryQuestion,
+    RecoveryAnswer,
+    ConfirmCreate,
+}
+
+/// Draft security question during vault creation.
+#[derive(Debug, Clone, Default)]
+pub struct SecurityQuestionDraft {
+    pub question: String,
+    pub answer: String,
+}
+
+/// Ongoing forgot-password recovery session.
+#[derive(Debug, Clone)]
+pub struct PasswordRecoverySession {
+    pub vault_name: String,
+    pub vault_path: PathBuf,
+    pub metadata: RecoveryMetadata,
+    pub current_question: usize,
+    pub failed_attempts: u32,
+    pub provided_answers: Vec<SecureString>,
+    pub latest_hint: Option<String>,
+    pub recovered_password: Option<String>,
+}
+
+impl PasswordRecoverySession {
+    pub fn new(vault_name: String, vault_path: PathBuf, metadata: RecoveryMetadata) -> Self {
+        Self {
+            vault_name,
+            vault_path,
+            metadata,
+            current_question: 0,
+            failed_attempts: 0,
+            provided_answers: Vec::new(),
+            latest_hint: None,
+            recovered_password: None,
+        }
+    }
+
+    pub fn current_question_text(&self) -> Option<&str> {
+        self.metadata
+            .questions
+            .get(self.current_question)
+            .map(|q| q.question.as_str())
+    }
+
+    pub fn is_complete(&self) -> bool {
+        self.current_question >= self.metadata.questions.len() && self.recovered_password.is_some()
+    }
+
+    pub fn is_locked_out(&self) -> bool {
+        self.failed_attempts >= self.metadata.max_attempts
+    }
+
+    pub fn remaining_attempts(&self) -> u32 {
+        self.metadata
+            .max_attempts
+            .saturating_sub(self.failed_attempts)
+    }
+
+    pub fn submit_answer(&mut self, answer: SecureString) -> crate::Result<bool> {
+        if self.current_question >= self.metadata.questions.len() {
+            return Ok(false);
+        }
+
+        let is_correct = self.metadata.questions[self.current_question].verify(&answer)?;
+        if !is_correct {
+            self.failed_attempts += 1;
+            return Ok(false);
+        }
+
+        self.provided_answers.push(answer);
+        let revealed = self.metadata.reveal_for_answers(&self.provided_answers)?;
+        self.latest_hint = Some(revealed.clone());
+        self.current_question += 1;
+
+        if self.current_question >= self.metadata.questions.len() {
+            self.recovered_password = Some(revealed);
+        }
+
+        Ok(true)
+    }
+}
 
 /// Login screen state
 #[derive(Debug, Default)]
@@ -29,14 +127,28 @@ pub struct LoginScreen {
     pub error_message: Option<String>,
     /// Whether to show create vault form
     pub creating_vault: bool,
-    /// Current step in create vault flow (0=name, 1=password, 2=confirm)
-    pub create_step: u8,
+    /// Current step in create vault flow
+    pub create_step: CreateVaultStep,
     /// Vault name being created
     pub new_vault_name: String,
     /// Password for new vault (stored temporarily)
     pub new_vault_password: String,
+    /// Selected encryption method for new vault
+    pub new_vault_encryption_method: EncryptionMethod,
+    /// Whether new vault requires keyfile for unlock
+    pub new_vault_use_keyfile: bool,
+    /// Keyfile path for create flow (optional until needed)
+    pub new_vault_keyfile_path: String,
+    /// Number of recovery security questions to configure (0-3)
+    pub new_vault_recovery_question_count: u8,
+    /// Collected security questions for the new vault
+    pub new_vault_recovery_questions: Vec<SecurityQuestionDraft>,
+    /// Temporary holder for question text before answer step
+    pub pending_recovery_question: Option<String>,
     /// Pending password for keyfile-required unlock flow
     pub pending_unlock_password: Option<SecureString>,
+    /// Active forgot-password recovery session
+    pub password_recovery: Option<PasswordRecoverySession>,
 }
 
 impl LoginScreen {
@@ -65,7 +177,10 @@ impl LoginScreen {
     pub fn enter_password_mode(&mut self) {
         self.entering_password = true;
         self.entering_keyfile_path = false;
+        self.creating_vault = false;
+        self.create_step = CreateVaultStep::Name;
         self.pending_unlock_password = None;
+        self.password_recovery = None;
         self.error_message = None;
     }
 
@@ -73,6 +188,7 @@ impl LoginScreen {
     pub fn exit_password_mode(&mut self) {
         self.entering_password = false;
         self.entering_keyfile_path = false;
+        self.password_recovery = None;
         self.pending_unlock_password = None;
     }
 
@@ -84,6 +200,20 @@ impl LoginScreen {
     /// Clear error message
     pub fn clear_error(&mut self) {
         self.error_message = None;
+    }
+
+    /// Reset create-vault draft fields.
+    pub fn reset_create_draft(&mut self) {
+        self.creating_vault = false;
+        self.create_step = CreateVaultStep::Name;
+        self.new_vault_name.clear();
+        self.new_vault_password.clear();
+        self.new_vault_encryption_method = EncryptionMethod::Aes256Gcm;
+        self.new_vault_use_keyfile = false;
+        self.new_vault_keyfile_path.clear();
+        self.new_vault_recovery_question_count = 0;
+        self.new_vault_recovery_questions.clear();
+        self.pending_recovery_question = None;
     }
 }
 
@@ -162,6 +292,11 @@ fn render_header(frame: &mut Frame, area: Rect, theme: &ThemePalette) {
 
 /// Render the main content area
 fn render_content(frame: &mut Frame, area: Rect, state: &mut AppState, theme: &ThemePalette) {
+    if state.screen == Screen::PasswordRecovery {
+        render_password_recovery_form(frame, area, state, theme);
+        return;
+    }
+
     let entering_password = state.login_screen.entering_password;
     let entering_keyfile_path = state.login_screen.entering_keyfile_path;
     let creating_vault = state.login_screen.creating_vault;
@@ -481,10 +616,16 @@ fn render_create_vault_form(
 
     // Step indicator
     let step_text = match step {
-        0 => "Step 1/3: Enter vault name",
-        1 => "Step 2/3: Enter password",
-        2 => "Step 3/3: Confirm password",
-        _ => "",
+        CreateVaultStep::Name => "Step 1/10: Enter vault name",
+        CreateVaultStep::Password => "Step 2/10: Enter password",
+        CreateVaultStep::ConfirmPassword => "Step 3/10: Confirm password",
+        CreateVaultStep::EncryptionMethod => "Step 4/10: Encryption method",
+        CreateVaultStep::KeyfileOption => "Step 5/10: Require keyfile? (yes/no)",
+        CreateVaultStep::KeyfilePath => "Step 6/10: Keyfile path",
+        CreateVaultStep::RecoveryQuestionCount => "Step 7/10: Recovery question count (0-3)",
+        CreateVaultStep::RecoveryQuestion => "Step 8/10: Enter recovery question",
+        CreateVaultStep::RecoveryAnswer => "Step 9/10: Enter recovery answer",
+        CreateVaultStep::ConfirmCreate => "Step 10/10: Review and create vault",
     };
     let step_indicator =
         Paragraph::new(Span::styled(step_text, Style::default().fg(theme.fg_muted)))
@@ -493,10 +634,49 @@ fn render_create_vault_form(
 
     // Input field based on step
     let (field_title, field_value) = match step {
-        0 => (" Vault Name ", state.ui_state.input_buffer.text.clone()),
-        1 => (" Password ", state.ui_state.input_buffer.display()),
-        2 => (" Confirm Password ", state.ui_state.input_buffer.display()),
-        _ => ("", String::new()),
+        CreateVaultStep::Name => (" Vault Name ", state.ui_state.input_buffer.text.clone()),
+        CreateVaultStep::Password => (" Password ", state.ui_state.input_buffer.display()),
+        CreateVaultStep::ConfirmPassword => {
+            (" Confirm Password ", state.ui_state.input_buffer.display())
+        }
+        CreateVaultStep::EncryptionMethod => (
+            " Encryption Method ",
+            state
+                .login_screen
+                .new_vault_encryption_method
+                .profile_label(),
+        ),
+        CreateVaultStep::KeyfileOption => (
+            " Require Keyfile (yes/no) ",
+            state.ui_state.input_buffer.text.clone(),
+        ),
+        CreateVaultStep::KeyfilePath => {
+            (" Keyfile Path ", state.ui_state.input_buffer.text.clone())
+        }
+        CreateVaultStep::RecoveryQuestionCount => (
+            " Recovery Questions (0-3) ",
+            state.ui_state.input_buffer.text.clone(),
+        ),
+        CreateVaultStep::RecoveryQuestion => (
+            " Security Question ",
+            state.ui_state.input_buffer.text.clone(),
+        ),
+        CreateVaultStep::RecoveryAnswer => {
+            (" Security Answer ", state.ui_state.input_buffer.display())
+        }
+        CreateVaultStep::ConfirmCreate => (
+            " Review ",
+            format!(
+                "Vault: {} | Keyfile: {} | Recovery Questions: {}",
+                state.login_screen.new_vault_name,
+                if state.login_screen.new_vault_use_keyfile {
+                    "Yes"
+                } else {
+                    "No"
+                },
+                state.login_screen.new_vault_recovery_question_count
+            ),
+        ),
     };
 
     let input = Paragraph::new(field_value)
@@ -512,9 +692,11 @@ fn render_create_vault_form(
     frame.render_widget(input, chunks[2]);
 
     // Render cursor
-    let cursor_x = chunks[2].x + 1 + state.ui_state.input_buffer.cursor as u16;
-    let cursor_y = chunks[2].y + 1;
-    frame.set_cursor_position((cursor_x, cursor_y));
+    if step != CreateVaultStep::EncryptionMethod && step != CreateVaultStep::ConfirmCreate {
+        let cursor_x = chunks[2].x + 1 + state.ui_state.input_buffer.cursor as u16;
+        let cursor_y = chunks[2].y + 1;
+        frame.set_cursor_position((cursor_x, cursor_y));
+    }
 
     // Error message
     if let Some(ref error) = error_message {
@@ -531,6 +713,106 @@ fn render_create_vault_form(
     }
 }
 
+fn render_password_recovery_form(
+    frame: &mut Frame,
+    area: Rect,
+    state: &mut AppState,
+    theme: &ThemePalette,
+) {
+    let Some(session) = state.login_screen.password_recovery.as_ref() else {
+        let paragraph = Paragraph::new("No active recovery session")
+            .alignment(Alignment::Center)
+            .block(create_block("Password Recovery", theme));
+        frame.render_widget(paragraph, area);
+        return;
+    };
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3), // title
+            Constraint::Length(2), // question progress
+            Constraint::Length(3), // answer input
+            Constraint::Length(3), // hint/password reveal
+            Constraint::Length(2), // attempts
+            Constraint::Min(0),
+        ])
+        .split(area);
+
+    let title = Paragraph::new(Line::from(vec![
+        Span::styled(
+            format!("{} ", icons::ui::VAULT_LOCKED),
+            Style::default().fg(theme.accent),
+        ),
+        Span::styled(
+            format!("Recover \"{}\"", session.vault_name),
+            Style::default().fg(theme.fg).add_modifier(Modifier::BOLD),
+        ),
+    ]))
+    .alignment(Alignment::Center);
+    frame.render_widget(title, chunks[0]);
+
+    let question_text = if session.is_complete() {
+        "Recovery complete".to_string()
+    } else if session.is_locked_out() {
+        "Recovery locked".to_string()
+    } else {
+        format!(
+            "Question {}/{}: {}",
+            session.current_question + 1,
+            session.metadata.questions.len(),
+            session.current_question_text().unwrap_or("-")
+        )
+    };
+    let question_para = Paragraph::new(question_text)
+        .alignment(Alignment::Center)
+        .style(Style::default().fg(theme.fg_muted));
+    frame.render_widget(question_para, chunks[1]);
+
+    let input = Paragraph::new(state.ui_state.input_buffer.display())
+        .style(Style::default().fg(theme.fg))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(theme.border_focused))
+                .border_type(ratatui::widgets::BorderType::Rounded)
+                .title(Span::styled(" Answer ", Style::default().fg(theme.accent))),
+        );
+    frame.render_widget(input, chunks[2]);
+
+    if !session.is_complete() && !session.is_locked_out() {
+        let cursor_x = chunks[2].x + 1 + state.ui_state.input_buffer.cursor as u16;
+        let cursor_y = chunks[2].y + 1;
+        frame.set_cursor_position((cursor_x, cursor_y));
+    }
+
+    let reveal_text = session
+        .recovered_password
+        .as_ref()
+        .map(|p| format!("Recovered password: {}", p))
+        .or_else(|| {
+            session
+                .latest_hint
+                .as_ref()
+                .map(|h| format!("Current hint: {}", h))
+        })
+        .unwrap_or_else(|| "Current hint: ••••••••".to_string());
+    let reveal_para = Paragraph::new(reveal_text)
+        .alignment(Alignment::Center)
+        .style(Style::default().fg(theme.fg));
+    frame.render_widget(reveal_para, chunks[3]);
+
+    let attempts = format!(
+        "Attempts remaining: {} / {}",
+        session.remaining_attempts(),
+        session.metadata.max_attempts
+    );
+    let attempts_para = Paragraph::new(attempts)
+        .alignment(Alignment::Center)
+        .style(Style::default().fg(theme.warning));
+    frame.render_widget(attempts_para, chunks[4]);
+}
+
 /// Render the footer with keybinding hints
 /// Render action buttons with embedded keyboard hints
 fn render_footer(
@@ -544,12 +826,27 @@ fn render_footer(
 ) {
     use crate::ui::widgets::{ButtonStyle, render_button_row};
 
-    let buttons = if creating_vault {
+    let buttons = if state.screen == Screen::PasswordRecovery {
+        vec![
+            (
+                "submit-recovery".to_string(),
+                "Submit Answer",
+                Some("Enter"),
+                ButtonStyle::Primary,
+            ),
+            (
+                "back".to_string(),
+                "Back",
+                Some("Esc"),
+                ButtonStyle::Secondary,
+            ),
+        ]
+    } else if creating_vault {
         let step = state.login_screen.create_step;
         let mut btns = vec![];
 
         // Add back button if not on first step
-        if step > 0 {
+        if step != CreateVaultStep::Name {
             btns.push((
                 "prev-step".to_string(),
                 "Back",
@@ -560,7 +857,11 @@ fn render_footer(
 
         btns.push((
             "save-vault".to_string(),
-            "Create",
+            if step == CreateVaultStep::ConfirmCreate {
+                "Create"
+            } else {
+                "Next"
+            },
             Some("Enter"),
             ButtonStyle::Primary,
         ));
@@ -572,7 +873,7 @@ fn render_footer(
         ));
         btns
     } else if entering_password || entering_keyfile_path {
-        vec![
+        let mut btns = vec![
             (
                 "unlock".to_string(),
                 "Unlock",
@@ -585,7 +886,16 @@ fn render_footer(
                 Some("Esc"),
                 ButtonStyle::Secondary,
             ),
-        ]
+        ];
+        if entering_password {
+            btns.push((
+                "forgot-password".to_string(),
+                "Forgot Password",
+                Some("f"),
+                ButtonStyle::Secondary,
+            ));
+        }
+        btns
     } else {
         vec![
             (

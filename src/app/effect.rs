@@ -31,6 +31,8 @@ pub enum Effect {
         key: [u8; 32],
         salt: [u8; 32],
         has_keyfile: bool,
+        encryption_method: crate::crypto::EncryptionMethod,
+        recovery_metadata: Option<crate::domain::RecoveryMetadata>,
     },
     /// Read application config
     ReadConfig,
@@ -120,6 +122,8 @@ pub enum EffectResult {
         key: [u8; 32],
         salt: [u8; 32],
         has_keyfile: bool,
+        encryption_method: crate::crypto::EncryptionMethod,
+        recovery_metadata: Option<crate::domain::RecoveryMetadata>,
     },
     /// Vault was saved successfully
     VaultSaved,

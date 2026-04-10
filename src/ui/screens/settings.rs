@@ -15,6 +15,87 @@ use crate::storage::ThemeChoice;
 use crate::ui::theme::ThemePalette;
 use crate::utils::icons;
 
+/// Step state for change-password workflow.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChangePasswordStep {
+    CurrentPassword,
+    KeyfilePath,
+    NewPassword,
+    ConfirmPassword,
+}
+
+/// Change-password workflow state.
+#[derive(Debug, Clone)]
+pub struct ChangePasswordAction {
+    pub step: ChangePasswordStep,
+    pub current_password: Option<String>,
+    pub keyfile_path: String,
+    pub keyfile_data: Option<Vec<u8>>,
+    pub new_password: Option<String>,
+}
+
+impl Default for ChangePasswordAction {
+    fn default() -> Self {
+        Self {
+            step: ChangePasswordStep::CurrentPassword,
+            current_password: None,
+            keyfile_path: String::new(),
+            keyfile_data: None,
+            new_password: None,
+        }
+    }
+}
+
+/// Step state for recovery setup workflow.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecoverySetupStep {
+    CurrentPassword,
+    KeyfilePath,
+    QuestionCount,
+    QuestionText,
+    AnswerText,
+}
+
+/// Recovery question draft for settings workflow.
+#[derive(Debug, Clone, Default)]
+pub struct RecoveryQuestionDraft {
+    pub question: String,
+    pub answer: String,
+}
+
+/// Recovery setup workflow state.
+#[derive(Debug, Clone)]
+pub struct RecoverySetupAction {
+    pub step: RecoverySetupStep,
+    pub current_password: Option<String>,
+    pub keyfile_path: String,
+    pub keyfile_data: Option<Vec<u8>>,
+    pub question_count: u8,
+    pub questions: Vec<RecoveryQuestionDraft>,
+    pub pending_question: Option<String>,
+}
+
+impl Default for RecoverySetupAction {
+    fn default() -> Self {
+        Self {
+            step: RecoverySetupStep::CurrentPassword,
+            current_password: None,
+            keyfile_path: String::new(),
+            keyfile_data: None,
+            question_count: 0,
+            questions: Vec::new(),
+            pending_question: None,
+        }
+    }
+}
+
+/// Active security action workflow from settings.
+#[derive(Debug, Clone)]
+pub enum SecurityActionState {
+    ChangePassword(ChangePasswordAction),
+    ConfigureRecovery(RecoverySetupAction),
+}
+
 /// Settings screen state
 #[derive(Debug, Default)]
 pub struct SettingsScreen {
@@ -24,6 +105,8 @@ pub struct SettingsScreen {
     pub editing: bool,
     /// Sub-selection for lists (like theme chooser)
     pub sub_selection: usize,
+    /// Active security workflow (if any)
+    pub security_action: Option<SecurityActionState>,
 }
 
 impl SettingsScreen {
@@ -78,6 +161,8 @@ pub enum SettingKind {
     ClipboardTimeout,
     ShowIcons,
     MouseEnabled,
+    ChangeMasterPassword,
+    ConfigureRecovery,
 }
 
 impl SettingKind {
@@ -89,6 +174,8 @@ impl SettingKind {
             SettingKind::ClipboardTimeout,
             SettingKind::ShowIcons,
             SettingKind::MouseEnabled,
+            SettingKind::ChangeMasterPassword,
+            SettingKind::ConfigureRecovery,
         ]
     }
 
@@ -100,6 +187,8 @@ impl SettingKind {
             SettingKind::ClipboardTimeout => "Clipboard Timeout",
             SettingKind::ShowIcons => "Show Icons",
             SettingKind::MouseEnabled => "Mouse Support",
+            SettingKind::ChangeMasterPassword => "Change Master Password",
+            SettingKind::ConfigureRecovery => "Configure Recovery",
         }
     }
 
@@ -111,6 +200,8 @@ impl SettingKind {
             SettingKind::ClipboardTimeout => icons::ui::COPY,
             SettingKind::ShowIcons => "",
             SettingKind::MouseEnabled => "󰍽",
+            SettingKind::ChangeMasterPassword => "󰌾",
+            SettingKind::ConfigureRecovery => "󱞁",
         }
     }
 }
@@ -143,6 +234,12 @@ pub fn render(
 
     // Footer hints
     render_footer(frame, chunks[2], screen_state, theme);
+
+    // Security action workflow popup takes priority
+    if screen_state.security_action.is_some() {
+        render_security_action_popup(frame, area, state, screen_state, theme);
+        return;
+    }
 
     // If editing, show selection popup
     if screen_state.editing {
@@ -229,7 +326,9 @@ fn render_footer(
     screen_state: &SettingsScreen,
     theme: &ThemePalette,
 ) {
-    let hints = if screen_state.editing {
+    let hints = if screen_state.security_action.is_some() {
+        "Type input  Enter: Next/Save  Esc: Cancel"
+    } else if screen_state.editing {
         "j/k: Select  Enter: Confirm  Esc: Cancel"
     } else {
         "j/k: Navigate  Enter: Edit  Esc: Back"
@@ -333,6 +432,8 @@ fn get_setting_value(state: &AppState, setting: &SettingKind) -> String {
                 "Disabled".to_string()
             }
         }
+        SettingKind::ChangeMasterPassword => "Action".to_string(),
+        SettingKind::ConfigureRecovery => "Action".to_string(),
     }
 }
 
@@ -359,6 +460,7 @@ fn get_setting_options(_state: &AppState, setting: &SettingKind) -> Vec<String> 
             "120s".to_string(),
             "Never".to_string(),
         ],
+        SettingKind::ChangeMasterPassword | SettingKind::ConfigureRecovery => vec![],
     }
 }
 
@@ -409,6 +511,7 @@ pub fn get_current_sub_index(state: &AppState, setting_index: usize) -> usize {
             120 => 3,
             _ => 4,
         },
+        SettingKind::ChangeMasterPassword | SettingKind::ConfigureRecovery => 0,
     }
 }
 
@@ -452,7 +555,149 @@ pub fn apply_setting(state: &mut AppState, setting_index: usize, option_index: u
                 _ => 0, // Never
             };
         }
+        SettingKind::ChangeMasterPassword | SettingKind::ConfigureRecovery => {}
     }
+}
+
+fn render_security_action_popup(
+    frame: &mut Frame,
+    area: Rect,
+    state: &AppState,
+    screen_state: &SettingsScreen,
+    theme: &ThemePalette,
+) {
+    let Some(action) = screen_state.security_action.as_ref() else {
+        return;
+    };
+
+    let (title, prompt, detail, force_mask) = match action {
+        SecurityActionState::ChangePassword(change) => match change.step {
+            ChangePasswordStep::CurrentPassword => (
+                " Change Master Password ",
+                "Enter current master password",
+                "Step 1/4",
+                true,
+            ),
+            ChangePasswordStep::KeyfilePath => (
+                " Change Master Password ",
+                "Enter keyfile path for verification",
+                "Step 2/4",
+                false,
+            ),
+            ChangePasswordStep::NewPassword => (
+                " Change Master Password ",
+                "Enter new master password",
+                "Step 3/4",
+                true,
+            ),
+            ChangePasswordStep::ConfirmPassword => (
+                " Change Master Password ",
+                "Confirm new master password",
+                "Step 4/4",
+                true,
+            ),
+        },
+        SecurityActionState::ConfigureRecovery(recovery) => match recovery.step {
+            RecoverySetupStep::CurrentPassword => (
+                " Configure Recovery ",
+                "Enter current master password",
+                "Step 1/5",
+                true,
+            ),
+            RecoverySetupStep::KeyfilePath => (
+                " Configure Recovery ",
+                "Enter keyfile path for verification",
+                "Step 2/5",
+                false,
+            ),
+            RecoverySetupStep::QuestionCount => (
+                " Configure Recovery ",
+                "Number of questions (0-3)",
+                "Step 3/5",
+                false,
+            ),
+            RecoverySetupStep::QuestionText => (
+                " Configure Recovery ",
+                "Enter security question text",
+                "Step 4/5",
+                false,
+            ),
+            RecoverySetupStep::AnswerText => (
+                " Configure Recovery ",
+                "Enter security answer",
+                "Step 5/5",
+                true,
+            ),
+        },
+    };
+
+    let popup_width = area.width.min(76).saturating_sub(2);
+    let popup_height = 10;
+    let popup_x = area.x + (area.width.saturating_sub(popup_width)) / 2;
+    let popup_y = area.y + (area.height.saturating_sub(popup_height)) / 2;
+    let popup_area = Rect::new(popup_x, popup_y, popup_width, popup_height);
+
+    frame.render_widget(Clear, popup_area);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(theme.accent))
+        .title(title)
+        .title_style(
+            Style::default()
+                .fg(theme.accent)
+                .add_modifier(Modifier::BOLD),
+        )
+        .style(Style::default().bg(theme.bg));
+    let inner = block.inner(popup_area);
+    frame.render_widget(block, popup_area);
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1), // prompt
+            Constraint::Length(3), // input
+            Constraint::Length(1), // detail
+            Constraint::Length(1), // hint
+        ])
+        .split(inner);
+
+    let prompt_para = Paragraph::new(prompt)
+        .style(Style::default().fg(theme.fg_muted))
+        .alignment(Alignment::Center);
+    frame.render_widget(prompt_para, chunks[0]);
+
+    let display_text = if force_mask {
+        "•".repeat(state.ui_state.input_buffer.text.chars().count())
+    } else {
+        state.ui_state.input_buffer.text.clone()
+    };
+    let input_para = Paragraph::new(display_text).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(theme.border_focused))
+            .title(Span::styled(" Input ", Style::default().fg(theme.accent))),
+    );
+    frame.render_widget(input_para, chunks[1]);
+
+    let detail_line = if let Some(err) = state.login_screen.error_message.as_ref() {
+        format!("{} • {}", detail, err)
+    } else {
+        detail.to_string()
+    };
+    let detail_para = Paragraph::new(detail_line)
+        .style(Style::default().fg(theme.fg))
+        .alignment(Alignment::Center);
+    frame.render_widget(detail_para, chunks[2]);
+
+    let hint_para = Paragraph::new("Enter: Next/Save    Esc: Cancel")
+        .style(Style::default().fg(theme.fg_muted))
+        .alignment(Alignment::Center);
+    frame.render_widget(hint_para, chunks[3]);
+
+    let cursor_x = chunks[1].x + 1 + state.ui_state.input_buffer.cursor as u16;
+    let cursor_y = chunks[1].y + 1;
+    frame.set_cursor_position((cursor_x, cursor_y));
 }
 
 #[cfg(test)]
@@ -464,7 +709,7 @@ mod tests {
         let mut screen = SettingsScreen::new();
         assert_eq!(screen.selected, 0);
 
-        screen.move_down(6, 0);
+        screen.move_down(SettingKind::all().len(), 0);
         assert_eq!(screen.selected, 1);
 
         screen.move_up();
@@ -480,7 +725,7 @@ mod tests {
         assert!(screen.editing);
         assert_eq!(screen.sub_selection, 2);
 
-        screen.move_down(6, 5);
+        screen.move_down(SettingKind::all().len(), 5);
         assert_eq!(screen.sub_selection, 3);
 
         let result = screen.confirm_edit();

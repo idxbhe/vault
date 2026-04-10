@@ -2,8 +2,11 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::crypto::{SecureString, hash_security_answer, verify_security_answer};
-use crate::utils::error::Result;
+use crate::crypto::{
+    Argon2Params, EncryptedPayload, EncryptionMethod, SecureString, decrypt_with_method,
+    derive_key, encrypt_with_method, generate_salt, hash_security_answer, verify_security_answer,
+};
+use crate::utils::error::{Error, Result};
 use crate::utils::mask::partial_reveal;
 
 /// A security question with hashed answer
@@ -80,6 +83,143 @@ pub struct RecoveryState {
     pub config: RecoveryConfig,
     /// Seed for consistent partial reveal
     pub reveal_seed: u64,
+}
+
+/// Encrypted hint stage for progressive password recovery.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecoveryStage {
+    /// Number of correctly answered questions required for this stage.
+    pub required_correct: u8,
+    /// Encrypted hint text for this stage.
+    pub encrypted_hint: EncryptedPayload,
+}
+
+/// Metadata needed to recover a forgotten password using security questions.
+///
+/// This metadata is stored in the vault header so it can be used without first
+/// unlocking the main encrypted vault payload.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecoveryMetadata {
+    /// Security questions and hashed answers (max 3).
+    pub questions: Vec<SecurityQuestion>,
+    /// Progressive reveal stages. Last stage decrypts to the full password.
+    pub stages: Vec<RecoveryStage>,
+    /// Maximum number of failed attempts before lockout.
+    pub max_attempts: u32,
+    /// Encryption method used for staged hint payloads.
+    pub encryption_method: EncryptionMethod,
+}
+
+impl RecoveryMetadata {
+    /// Build recovery metadata from question-answer pairs and the master password.
+    pub fn build(
+        question_answers: Vec<(String, SecureString)>,
+        master_password: &SecureString,
+        encryption_method: EncryptionMethod,
+    ) -> Result<Self> {
+        if question_answers.is_empty() || question_answers.len() > 3 {
+            return Err(Error::InvalidItem(
+                "Recovery questions must be between 1 and 3".to_string(),
+            ));
+        }
+
+        let mut questions = Vec::with_capacity(question_answers.len());
+        let mut ordered_answers = Vec::with_capacity(question_answers.len());
+
+        for (question_text, answer) in question_answers {
+            let question_text = question_text.trim();
+            if question_text.is_empty() {
+                return Err(Error::InvalidItem(
+                    "Security question cannot be empty".to_string(),
+                ));
+            }
+            if answer.as_str().trim().is_empty() {
+                return Err(Error::InvalidItem(
+                    "Security answer cannot be empty".to_string(),
+                ));
+            }
+
+            let question = SecurityQuestion::new(question_text, &answer)?;
+            questions.push(question);
+            ordered_answers.push(answer);
+        }
+
+        let reveal_seed: u64 = rand::random();
+        let config = RecoveryConfig::default();
+        let total = ordered_answers.len();
+        let mut stages = Vec::with_capacity(total);
+
+        for idx in 0..total {
+            let required_correct = idx + 1;
+            let hint = if required_correct == total {
+                master_password.as_str().to_string()
+            } else {
+                let percentage = config.get_reveal_percentage(required_correct);
+                partial_reveal(master_password.as_str(), percentage, reveal_seed)
+            };
+
+            let key_material = Self::compose_key_material(&ordered_answers[..required_correct]);
+            let params = Argon2Params {
+                memory_kib: 16384,
+                iterations: 2,
+                parallelism: 2,
+            };
+            let salt = generate_salt();
+            let key = derive_key(&key_material, None, &salt, &params)?;
+
+            let encrypted_hint =
+                encrypt_with_method(encryption_method, hint.as_bytes(), &key, salt, params)?;
+
+            stages.push(RecoveryStage {
+                required_correct: required_correct as u8,
+                encrypted_hint,
+            });
+        }
+
+        Ok(Self {
+            questions,
+            stages,
+            max_attempts: config.max_attempts,
+            encryption_method,
+        })
+    }
+
+    /// Reveal the hint/password matching the number of provided correct answers.
+    pub fn reveal_for_answers(&self, ordered_answers: &[SecureString]) -> Result<String> {
+        if ordered_answers.is_empty() {
+            return Ok("".to_string());
+        }
+
+        let stage_index = ordered_answers.len() - 1;
+        let Some(stage) = self.stages.get(stage_index) else {
+            return Err(Error::SecurityQuestionFailed);
+        };
+
+        let key_material = Self::compose_key_material(ordered_answers);
+        let key = derive_key(
+            &key_material,
+            None,
+            &stage.encrypted_hint.salt,
+            &stage.encrypted_hint.argon2_params,
+        )?;
+
+        let decrypted = decrypt_with_method(self.encryption_method, &stage.encrypted_hint, &key)?;
+        String::from_utf8(decrypted).map_err(|_| Error::Decryption)
+    }
+
+    /// True when this metadata has at least one question and one stage.
+    pub fn is_configured(&self) -> bool {
+        !self.questions.is_empty() && !self.stages.is_empty()
+    }
+
+    fn compose_key_material(answers: &[SecureString]) -> SecureString {
+        let joined = answers
+            .iter()
+            .map(|a| a.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        SecureString::new(joined)
+    }
 }
 
 impl RecoveryState {
@@ -226,5 +366,34 @@ mod tests {
         assert_eq!(revealed.chars().count(), password.chars().count());
         // Should have some revealed characters
         assert!(revealed.chars().any(|c| c != '•'));
+    }
+
+    #[test]
+    fn test_recovery_metadata_build_and_progressive_reveal() {
+        let qas = vec![
+            ("Q1?".to_string(), SecureString::from_str("jawaban-satu")),
+            ("Q2?".to_string(), SecureString::from_str("jawaban-dua")),
+        ];
+        let password = SecureString::from_str("kentanggoreng123");
+
+        let metadata =
+            RecoveryMetadata::build(qas, &password, EncryptionMethod::Aes256Gcm).unwrap();
+        assert_eq!(metadata.questions.len(), 2);
+        assert_eq!(metadata.stages.len(), 2);
+        assert!(metadata.is_configured());
+
+        let stage1 = metadata
+            .reveal_for_answers(&[SecureString::from_str("jawaban-satu")])
+            .unwrap();
+        assert_eq!(stage1.chars().count(), password.as_str().chars().count());
+        assert!(stage1.chars().any(|c| c == '•'));
+
+        let full = metadata
+            .reveal_for_answers(&[
+                SecureString::from_str("jawaban-satu"),
+                SecureString::from_str("jawaban-dua"),
+            ])
+            .unwrap();
+        assert_eq!(full, password.as_str());
     }
 }

@@ -40,6 +40,8 @@ pub enum Message {
     StartCreateVault,
     /// Enter password mode for selected vault
     EnterPasswordMode,
+    /// Start forgot-password recovery for selected vault
+    StartPasswordRecovery,
     /// Go back to previous step in vault creation
     LoginPrevStep,
     /// Cancel current input operation

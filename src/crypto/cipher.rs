@@ -10,6 +10,55 @@ use serde::{Deserialize, Serialize};
 use crate::crypto::Argon2Params;
 use crate::utils::error::{Error, Result};
 
+/// Supported vault encryption methods.
+///
+/// Only AES-256-GCM is implemented today, but this enum is versioned and
+/// serialized so additional methods can be added without redesigning headers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum EncryptionMethod {
+    #[default]
+    Aes256Gcm,
+}
+
+impl EncryptionMethod {
+    /// All available encryption methods.
+    pub fn all() -> &'static [EncryptionMethod] {
+        &[EncryptionMethod::Aes256Gcm]
+    }
+
+    /// Display name for UI.
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            EncryptionMethod::Aes256Gcm => "AES-256-GCM",
+        }
+    }
+
+    /// Security level label for UI.
+    pub fn security_level(&self) -> &'static str {
+        match self {
+            EncryptionMethod::Aes256Gcm => "High",
+        }
+    }
+
+    /// Decryption speed label for UI.
+    pub fn decryption_speed(&self) -> &'static str {
+        match self {
+            EncryptionMethod::Aes256Gcm => "Slow Decryption",
+        }
+    }
+
+    /// Full descriptive label for UI.
+    pub fn profile_label(&self) -> String {
+        format!(
+            "{} ({}, {})",
+            self.display_name(),
+            self.security_level(),
+            self.decryption_speed()
+        )
+    }
+}
+
 /// Encrypted payload containing ciphertext and all data needed for decryption
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EncryptedPayload {
@@ -96,6 +145,30 @@ pub fn decrypt(payload: &EncryptedPayload, key: &[u8; 32]) -> Result<Vec<u8>> {
     cipher
         .decrypt(nonce, payload.ciphertext.as_slice())
         .map_err(|_| Error::Decryption)
+}
+
+/// Encrypt plaintext using the selected encryption method.
+pub fn encrypt_with_method(
+    method: EncryptionMethod,
+    plaintext: &[u8],
+    key: &[u8; 32],
+    salt: [u8; 32],
+    argon2_params: Argon2Params,
+) -> Result<EncryptedPayload> {
+    match method {
+        EncryptionMethod::Aes256Gcm => encrypt(plaintext, key, salt, argon2_params),
+    }
+}
+
+/// Decrypt payload using the selected encryption method.
+pub fn decrypt_with_method(
+    method: EncryptionMethod,
+    payload: &EncryptedPayload,
+    key: &[u8; 32],
+) -> Result<Vec<u8>> {
+    match method {
+        EncryptionMethod::Aes256Gcm => decrypt(payload, key),
+    }
 }
 
 /// Encrypt and serialize a value
@@ -234,5 +307,12 @@ mod tests {
         let decrypted = decrypt(&encrypted, &key).unwrap();
 
         assert_eq!(decrypted, plaintext);
+    }
+
+    #[test]
+    fn test_encryption_method_profile_label() {
+        let label = EncryptionMethod::Aes256Gcm.profile_label();
+        assert!(label.contains("AES-256-GCM"));
+        assert!(label.contains("High"));
     }
 }
