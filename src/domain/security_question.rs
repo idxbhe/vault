@@ -1,13 +1,14 @@
 //! Security questions for password recovery
 
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 use crate::crypto::{SecureString, hash_security_answer, verify_security_answer};
 use crate::utils::error::Result;
 use crate::utils::mask::partial_reveal;
 
 /// A security question with hashed answer
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct SecurityQuestion {
     /// The question text
     pub question: String,
@@ -15,6 +16,16 @@ pub struct SecurityQuestion {
     pub answer_hash: Vec<u8>,
     /// Salt used for hashing
     pub salt: [u8; 32],
+}
+
+impl fmt::Debug for SecurityQuestion {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SecurityQuestion")
+            .field("question", &"[REDACTED]")
+            .field("answer_hash", &"[REDACTED]")
+            .field("salt", &"[REDACTED]")
+            .finish()
+    }
 }
 
 impl SecurityQuestion {

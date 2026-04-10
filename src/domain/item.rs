@@ -2,12 +2,13 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use uuid::Uuid;
 
 use super::history::HistoryEntry;
 
 /// A single entry in the vault (password, seed phrase, note, etc.)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Item {
     /// Unique identifier
     pub id: Uuid,
@@ -29,6 +30,23 @@ pub struct Item {
     pub updated_at: DateTime<Utc>,
     /// Edit history for undo/redo
     pub history: Vec<HistoryEntry>,
+}
+
+impl fmt::Debug for Item {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Item")
+            .field("id", &self.id)
+            .field("title", &self.title)
+            .field("kind", &self.kind)
+            .field("content", &"[REDACTED]")
+            .field("notes", &"[REDACTED]")
+            .field("tags", &self.tags)
+            .field("favorite", &self.favorite)
+            .field("created_at", &self.created_at)
+            .field("updated_at", &self.updated_at)
+            .field("history", &format!("[REDACTED {} entries]", self.history.len()))
+            .finish()
+    }
 }
 
 impl Item {
@@ -228,7 +246,7 @@ impl ItemKind {
 
 /// Type-specific content for items
 /// Note: Uses default externally-tagged format for bincode compatibility
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub enum ItemContent {
     /// Generic: simple value
     Generic { value: String },
@@ -257,6 +275,18 @@ pub enum ItemContent {
         service: Option<String>,
         expires_at: Option<DateTime<Utc>>,
     },
+}
+
+impl fmt::Debug for ItemContent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ItemContent::Generic { .. } => write!(f, "Generic([REDACTED])"),
+            ItemContent::CryptoSeed { .. } => write!(f, "CryptoSeed([REDACTED])"),
+            ItemContent::Password { .. } => write!(f, "Password([REDACTED])"),
+            ItemContent::SecureNote { .. } => write!(f, "SecureNote([REDACTED])"),
+            ItemContent::ApiKey { .. } => write!(f, "ApiKey([REDACTED])"),
+        }
+    }
 }
 
 impl Default for ItemContent {

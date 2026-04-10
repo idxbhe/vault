@@ -2,6 +2,7 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use uuid::Uuid;
 
 use super::item::{Item, ItemKind};
@@ -9,7 +10,7 @@ use super::security_question::SecurityQuestion;
 use super::tag::Tag;
 
 /// The root vault structure containing all items and metadata
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Vault {
     /// Unique identifier
     pub id: Uuid,
@@ -29,6 +30,22 @@ pub struct Vault {
     pub settings: VaultSettings,
     /// Security questions for password recovery (up to 3)
     pub security_questions: Vec<SecurityQuestion>,
+}
+
+impl fmt::Debug for Vault {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Vault")
+            .field("id", &self.id)
+            .field("name", &self.name)
+            .field("description", &"[REDACTED]")
+            .field("created_at", &self.created_at)
+            .field("updated_at", &self.updated_at)
+            .field("items", &format!("[REDACTED {} items]", self.items.len()))
+            .field("tags", &self.tags)
+            .field("settings", &self.settings)
+            .field("security_questions", &format!("[REDACTED {} questions]", self.security_questions.len()))
+            .finish()
+    }
 }
 
 impl Vault {
