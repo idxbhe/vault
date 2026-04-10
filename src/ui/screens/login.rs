@@ -841,7 +841,7 @@ fn render_create_vault_form(
                 CreateVaultField::ConfirmPassword,
             ));
             fields_to_show.push((
-                "Use Keyfile (y/n) - A keyfile adds an extra layer of security.",
+                "Use Keyfile (y/n)",
                 Some(&form.use_keyfile),
                 CreateVaultField::UseKeyfile,
             ));
@@ -857,7 +857,7 @@ fn render_create_vault_form(
         }
         CreateVaultStep::Step3 => {
             fields_to_show.push((
-                "Number of Recovery Questions (0-3) - Provide a fallback method to recover access.",
+                "Number of Recovery Questions (0-3)",
                 Some(&form.recovery_questions_count),
                 CreateVaultField::RecoveryQuestionsCount,
             ));
@@ -918,40 +918,50 @@ fn render_create_vault_form(
 
     // Calculate form dimensions
     let form_width = area.width.min(70);
+    let extra_height = match form.step {
+        CreateVaultStep::Step1 => 1, // encryption method
+        CreateVaultStep::Step2 => 2, // keyfile description
+        CreateVaultStep::Step3 => 2, // recovery questions description
+    };
+
     // Base height for fields + padding + navigation row + error row
     let max_height = area.height.saturating_sub(2);
-    let form_height = ((total_rows as u16) * 3).min(max_height);
+    let form_height = ((total_rows as u16) * 3 + extra_height).min(max_height);
     let x = (area.width.saturating_sub(form_width)) / 2;
     let y = (area.height.saturating_sub(form_height)) / 2;
 
     let form_area = Rect::new(x, y, form_width, form_height);
 
     // Calculate visible rows
-    let inner_height = form_area.height.saturating_sub(2); // subtract borders
+    let inner_height = form_area.height.saturating_sub(2).saturating_sub(extra_height); // subtract borders and extra height
     let max_visible_rows = (inner_height / 3) as usize;
 
     // Update scroll offset if needed
-    if let Some(idx) = focused_idx {
-        if idx < form.scroll_offset as usize {
-            form.scroll_offset = idx as u16;
-        } else if idx >= (form.scroll_offset as usize + max_visible_rows.saturating_sub(1)) {
-            // we use max_visible_rows - 1 because we want to leave room for the navigation row if we are at the bottom
-            form.scroll_offset = (idx + 1).saturating_sub(max_visible_rows) as u16;
-        }
+    if total_rows <= max_visible_rows {
+        form.scroll_offset = 0;
     } else {
-        // If focused field is navigation (Next/Create/Back), scroll to bottom
-        let is_nav = form.focused_field == CreateVaultField::NextButton
-            || form.focused_field == CreateVaultField::CreateButton
-            || form.focused_field == CreateVaultField::BackButton;
+        if let Some(idx) = focused_idx {
+            if idx < form.scroll_offset as usize {
+                form.scroll_offset = idx as u16;
+            } else if idx >= (form.scroll_offset as usize + max_visible_rows.saturating_sub(1)) {
+                // we use max_visible_rows - 1 because we want to leave room for the navigation row if we are at the bottom
+                form.scroll_offset = (idx + 1).saturating_sub(max_visible_rows) as u16;
+            }
+        } else {
+            // If focused field is navigation (Next/Create/Back), scroll to bottom
+            let is_nav = form.focused_field == CreateVaultField::NextButton
+                || form.focused_field == CreateVaultField::CreateButton
+                || form.focused_field == CreateVaultField::BackButton;
 
-        if is_nav && total_rows > max_visible_rows {
-            form.scroll_offset = (total_rows - max_visible_rows) as u16;
+            if is_nav {
+                form.scroll_offset = (total_rows - max_visible_rows) as u16;
+            }
         }
-    }
 
-    // Bound scroll offset
-    let max_scroll = total_rows.saturating_sub(max_visible_rows) as u16;
-    form.scroll_offset = form.scroll_offset.min(max_scroll);
+        // Bound scroll offset
+        let max_scroll = total_rows.saturating_sub(max_visible_rows) as u16;
+        form.scroll_offset = form.scroll_offset.min(max_scroll);
+    }
 
     // Clear background
     frame.render_widget(Clear, form_area);
@@ -983,8 +993,19 @@ fn render_create_vault_form(
     let start_idx = form.scroll_offset as usize;
     let end_idx = (start_idx + max_visible_rows).min(total_rows);
 
-    for _ in start_idx..end_idx {
-        constraints.push(Constraint::Length(3));
+    for i in start_idx..end_idx {
+        if i < fields_to_show.len() {
+            let field = fields_to_show[i].2;
+            if field == CreateVaultField::EncryptionMethod {
+                 constraints.push(Constraint::Length(4));
+            } else if field == CreateVaultField::UseKeyfile || field == CreateVaultField::RecoveryQuestionsCount {
+                 constraints.push(Constraint::Length(5)); // Give room for descriptions
+            } else {
+                 constraints.push(Constraint::Length(3));
+            }
+        } else {
+             constraints.push(Constraint::Length(3));
+        }
     }
     constraints.push(Constraint::Min(0));
 
@@ -1030,7 +1051,23 @@ fn render_create_vault_form(
             .title(Span::styled(format!(" {} ", label), title_style));
 
         if let Some(buffer) = buffer_opt {
-            let input_para = Paragraph::new(buffer.display())
+            let mut paragraph_lines = vec![Line::from(buffer.display())];
+
+            if *field_enum == CreateVaultField::UseKeyfile {
+                paragraph_lines.push(Line::from(""));
+                paragraph_lines.push(Line::from(Span::styled(
+                    "A keyfile adds an extra layer of security.",
+                    Style::default().fg(theme.fg_muted).add_modifier(Modifier::ITALIC),
+                )));
+            } else if *field_enum == CreateVaultField::RecoveryQuestionsCount {
+                paragraph_lines.push(Line::from(""));
+                paragraph_lines.push(Line::from(Span::styled(
+                    "Provide a fallback method to recover access.",
+                    Style::default().fg(theme.fg_muted).add_modifier(Modifier::ITALIC),
+                )));
+            }
+
+            let input_para = Paragraph::new(paragraph_lines)
                 .style(Style::default().fg(theme.fg))
                 .block(input_block.clone());
             frame.render_widget(input_para, layout[current_layout_idx]);
