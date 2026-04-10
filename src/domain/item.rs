@@ -175,7 +175,9 @@ impl Item {
                     fields.push(("URL".to_string(), u.to_string(), false, Some(FormField::Url)));
                 }
                 if let Some(totp) = totp_secret {
-                    fields.push(("TOTP Secret".to_string(), totp.to_string(), true, None)); // totp_secret not in password form fields explicitly
+                    let totp_val = generate_totp_code(totp);
+                    fields.push(("TOTP Code".to_string(), totp_val, true, Some(FormField::TotpSecret)));
+                    fields.push(("TOTP Secret".to_string(), totp.to_string(), true, Some(FormField::TotpSecret)));
                 }
             }
             ItemContent::SecureNote { content } => {
@@ -204,22 +206,7 @@ impl Item {
                 }
                 fields.push(("Account Name".to_string(), account_name.to_string(), false, Some(FormField::AccountName)));
 
-                // For copying we provide the actual TOTP string code if valid, otherwise secret
-                let secret_bytes = totp_rs::Secret::Encoded(secret.to_string())
-                    .to_bytes()
-                    .unwrap_or_else(|_| secret.as_bytes().to_vec());
-
-                let totp_val = match totp_rs::TOTP::new(
-                    totp_rs::Algorithm::SHA1,
-                    6,
-                    1,
-                    30,
-                    secret_bytes,
-                ) {
-                    Ok(totp) => totp.generate_current().unwrap_or_else(|_| secret.to_string()),
-                    Err(_) => secret.to_string(),
-                };
-
+                let totp_val = generate_totp_code(secret);
                 fields.push(("TOTP Code".to_string(), totp_val, true, Some(FormField::TotpSecret))); // Map TOTP Code to TotpSecret field to edit the secret
                 fields.push(("Secret".to_string(), secret.to_string(), true, Some(FormField::TotpSecret)));
             }
@@ -379,6 +366,24 @@ pub struct CustomField {
     pub key: String,
     pub value: String,
     pub field_type: CustomFieldType,
+}
+
+/// Helper to generate TOTP code from a secret string
+fn generate_totp_code(secret: &str) -> String {
+    let secret_bytes = totp_rs::Secret::Encoded(secret.to_string())
+        .to_bytes()
+        .unwrap_or_else(|_| secret.as_bytes().to_vec());
+
+    match totp_rs::TOTP::new(
+        totp_rs::Algorithm::SHA1,
+        6,
+        1,
+        30,
+        secret_bytes,
+    ) {
+        Ok(totp) => totp.generate_current().unwrap_or_else(|_| secret.to_string()),
+        Err(_) => secret.to_string(),
+    }
 }
 
 /// Type-specific content for items

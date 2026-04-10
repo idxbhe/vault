@@ -2424,7 +2424,10 @@ fn create_item_from_form(
                 .get_value(&FormField::Url)
                 .filter(|s| !s.is_empty())
                 .map(|s| s.to_string()),
-            totp_secret: None,
+            totp_secret: form
+                .get_value(&FormField::TotpSecret)
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string()),
         },
         crate::domain::ItemKind::ApiKey => ItemContent::ApiKey {
             key: form.get_value(&FormField::ApiKey).unwrap_or("").to_string(),

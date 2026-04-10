@@ -226,6 +226,7 @@ fn get_fields_for_kind(kind: ItemKind) -> Vec<FormField> {
             fields.push(FormField::Username);
             fields.push(FormField::Password);
             fields.push(FormField::Url);
+            fields.push(FormField::TotpSecret);
         }
         ItemKind::SecureNote => {
             fields.push(FormField::Content);
