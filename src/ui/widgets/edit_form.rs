@@ -27,6 +27,9 @@ pub enum FormField {
     ApiKey,
     Service,
     Content,
+    Issuer,
+    AccountName,
+    TotpSecret,
     CustomFields,
     Notes,
 }
@@ -45,6 +48,9 @@ impl FormField {
             FormField::ApiKey => "API Key",
             FormField::Service => "Service",
             FormField::Content => "Content",
+            FormField::Issuer => "Issuer",
+            FormField::AccountName => "Account Name",
+            FormField::TotpSecret => "TOTP Secret",
             FormField::CustomFields => "Fields (type:key=value; ...)",
             FormField::Notes => "Notes",
         }
@@ -54,7 +60,7 @@ impl FormField {
     pub fn is_sensitive(&self) -> bool {
         matches!(
             self,
-            FormField::Password | FormField::SeedPhrase | FormField::ApiKey | FormField::Content
+            FormField::Password | FormField::SeedPhrase | FormField::ApiKey | FormField::Content | FormField::TotpSecret
         )
     }
 }
@@ -227,6 +233,11 @@ fn get_fields_for_kind(kind: ItemKind) -> Vec<FormField> {
         ItemKind::ApiKey => {
             fields.push(FormField::Service);
             fields.push(FormField::ApiKey);
+        }
+        ItemKind::Totp => {
+            fields.push(FormField::Issuer);
+            fields.push(FormField::AccountName);
+            fields.push(FormField::TotpSecret);
         }
         ItemKind::Custom => {
             fields.push(FormField::CustomFields);

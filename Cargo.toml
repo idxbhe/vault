@@ -45,6 +45,7 @@ arboard = { version = "3.4", optional = true }
 # Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+totp-rs = "5.7.1"
 
 [dev-dependencies]
 tempfile = "3.12"

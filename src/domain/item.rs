@@ -139,6 +139,105 @@ impl Item {
         self.updated_at = Utc::now();
     }
 
+    /// Extract all viewable fields as `(Label, Value, IsSensitive, Option<FormField>)` tuples.
+    pub fn get_fields(&self) -> Vec<(String, String, bool, Option<crate::ui::widgets::FormField>)> {
+        let mut fields = vec![];
+        use crate::ui::widgets::FormField;
+
+        match &self.content {
+            ItemContent::Generic { value } => {
+                fields.push(("Value".to_string(), value.to_string(), true, Some(FormField::Content)));
+            }
+            ItemContent::CryptoSeed {
+                seed_phrase,
+                derivation_path,
+                network,
+            } => {
+                fields.push(("Seed Phrase".to_string(), seed_phrase.to_string(), true, Some(FormField::SeedPhrase)));
+                if let Some(dp) = derivation_path {
+                    fields.push(("Derivation Path".to_string(), dp.to_string(), false, Some(FormField::DerivationPath)));
+                }
+                if let Some(net) = network {
+                    fields.push(("Network".to_string(), net.to_string(), false, Some(FormField::Network)));
+                }
+            }
+            ItemContent::Password {
+                username,
+                password,
+                url,
+                totp_secret,
+            } => {
+                if let Some(user) = username {
+                    fields.push(("Username".to_string(), user.to_string(), false, Some(FormField::Username)));
+                }
+                fields.push(("Password".to_string(), password.to_string(), true, Some(FormField::Password)));
+                if let Some(u) = url {
+                    fields.push(("URL".to_string(), u.to_string(), false, Some(FormField::Url)));
+                }
+                if let Some(totp) = totp_secret {
+                    fields.push(("TOTP Secret".to_string(), totp.to_string(), true, None)); // totp_secret not in password form fields explicitly
+                }
+            }
+            ItemContent::SecureNote { content } => {
+                fields.push(("Content".to_string(), content.to_string(), true, Some(FormField::Content)));
+            }
+            ItemContent::ApiKey {
+                key,
+                service,
+                expires_at,
+            } => {
+                if let Some(svc) = service {
+                    fields.push(("Service".to_string(), svc.to_string(), false, Some(FormField::Service)));
+                }
+                fields.push(("API Key".to_string(), key.to_string(), true, Some(FormField::ApiKey)));
+                if let Some(exp) = expires_at {
+                    fields.push(("Expires".to_string(), exp.to_rfc3339(), false, None)); // no exp form field
+                }
+            }
+            ItemContent::Totp {
+                issuer,
+                account_name,
+                secret,
+            } => {
+                if let Some(iss) = issuer {
+                    fields.push(("Issuer".to_string(), iss.to_string(), false, Some(FormField::Issuer)));
+                }
+                fields.push(("Account Name".to_string(), account_name.to_string(), false, Some(FormField::AccountName)));
+
+                // For copying we provide the actual TOTP string code if valid, otherwise secret
+                let secret_bytes = totp_rs::Secret::Encoded(secret.to_string())
+                    .to_bytes()
+                    .unwrap_or_else(|_| secret.as_bytes().to_vec());
+
+                let totp_val = match totp_rs::TOTP::new(
+                    totp_rs::Algorithm::SHA1,
+                    6,
+                    1,
+                    30,
+                    secret_bytes,
+                ) {
+                    Ok(totp) => totp.generate_current().unwrap_or_else(|_| secret.to_string()),
+                    Err(_) => secret.to_string(),
+                };
+
+                fields.push(("TOTP Code".to_string(), totp_val, true, Some(FormField::TotpSecret))); // Map TOTP Code to TotpSecret field to edit the secret
+                fields.push(("Secret".to_string(), secret.to_string(), true, Some(FormField::TotpSecret)));
+            }
+            ItemContent::Custom { fields: custom_fields } => {
+                for field in custom_fields {
+                    fields.push((
+                        field.key.clone(),
+                        field.value.clone(),
+                        field.field_type == CustomFieldType::Secret,
+                        Some(FormField::CustomFields),
+                    ));
+                }
+            }
+        }
+
+        fields
+    }
+
     /// Get the primary sensitive content for copying
     pub fn get_copyable_content(&self) -> Option<&str> {
         match &self.content {
@@ -147,6 +246,7 @@ impl Item {
             ItemContent::Password { password, .. } => Some(password),
             ItemContent::SecureNote { content } => Some(content),
             ItemContent::ApiKey { key, .. } => Some(key),
+            ItemContent::Totp { secret, .. } => Some(secret),
             ItemContent::Custom { fields } => fields
                 .iter()
                 .find(|f| f.field_type == CustomFieldType::Secret)
@@ -171,6 +271,8 @@ pub enum ItemKind {
     SecureNote,
     /// API key or token
     ApiKey,
+    /// Standalone TOTP entry
+    Totp,
     /// Dynamic custom entry with typed fields
     Custom,
 }
@@ -184,6 +286,7 @@ impl ItemKind {
             ItemKind::Password => "Password",
             ItemKind::SecureNote => "Secure Note",
             ItemKind::ApiKey => "API Key",
+            ItemKind::Totp => "TOTP",
             ItemKind::Custom => "Custom Entry",
         }
     }
@@ -196,6 +299,7 @@ impl ItemKind {
             ItemKind::Password => "󰌋",
             ItemKind::SecureNote => "󱞂",
             ItemKind::ApiKey => "󰯄",
+            ItemKind::Totp => "󰅡",
             ItemKind::Custom => "󰅩",
         }
     }
@@ -208,6 +312,7 @@ impl ItemKind {
             ItemKind::Password,
             ItemKind::SecureNote,
             ItemKind::ApiKey,
+            ItemKind::Totp,
             ItemKind::Custom,
         ]
     }
@@ -236,6 +341,11 @@ impl ItemKind {
                 key: String::new(),
                 service: None,
                 expires_at: None,
+            },
+            ItemKind::Totp => ItemContent::Totp {
+                issuer: None,
+                account_name: String::new(),
+                secret: String::new(),
             },
             ItemKind::Custom => ItemContent::Custom { fields: vec![] },
         }
@@ -301,6 +411,13 @@ pub enum ItemContent {
         key: String,
         service: Option<String>,
         expires_at: Option<DateTime<Utc>>,
+    },
+
+    /// Standalone TOTP
+    Totp {
+        issuer: Option<String>,
+        account_name: String,
+        secret: String,
     },
 
     /// Dynamic key/value fields with per-field type

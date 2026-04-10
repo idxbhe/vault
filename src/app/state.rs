@@ -245,6 +245,8 @@ pub struct UIState {
     pub list_scroll_offset: usize,
     /// Scroll offset in the detail view
     pub detail_scroll_offset: usize,
+    /// Selected field index in the detail view
+    pub detail_selected_field: usize,
     /// Active floating window
     pub floating_window: Option<FloatingWindow>,
     /// Active notifications
@@ -480,6 +482,29 @@ impl FloatingWindow {
                     && let Some(s) = service {
                         form.values[idx] = s.clone();
                     }
+            }
+            ItemContent::Totp { issuer, account_name, secret } => {
+                if let Some(idx) = form
+                    .fields
+                    .iter()
+                    .position(|f| *f == crate::ui::widgets::FormField::Issuer)
+                    && let Some(iss) = issuer {
+                        form.values[idx] = iss.clone();
+                    }
+                if let Some(idx) = form
+                    .fields
+                    .iter()
+                    .position(|f| *f == crate::ui::widgets::FormField::AccountName)
+                {
+                    form.values[idx] = account_name.clone();
+                }
+                if let Some(idx) = form
+                    .fields
+                    .iter()
+                    .position(|f| *f == crate::ui::widgets::FormField::TotpSecret)
+                {
+                    form.values[idx] = secret.clone();
+                }
             }
             ItemContent::Custom { fields } => {
                 if let Some(idx) = form

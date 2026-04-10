@@ -166,7 +166,7 @@ impl Default for VaultSettings {
     fn default() -> Self {
         Self {
             auto_lock_timeout_secs: Some(300), // 5 minutes
-            clipboard_clear_secs: 30,
+            clipboard_clear_secs: 60,
             default_item_kind: ItemKind::Generic,
         }
     }
@@ -240,7 +240,7 @@ mod tests {
         let settings = VaultSettings::default();
 
         assert_eq!(settings.auto_lock_timeout_secs, Some(300));
-        assert_eq!(settings.clipboard_clear_secs, 30);
+        assert_eq!(settings.clipboard_clear_secs, 60);
         assert_eq!(settings.default_item_kind, ItemKind::Generic);
     }
 }

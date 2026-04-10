@@ -210,7 +210,10 @@ fn action_to_message(state: &AppState, action: KeyAction) -> Message {
         // Actions
         KeyAction::Select => {
             if let Some(item) = state.selected_item() {
-                Message::OpenFloatingWindow(FloatingWindow::edit_item_form(item))
+                match state.ui_state.focused_pane {
+                    Pane::Detail => Message::CopyField(state.ui_state.detail_selected_field),
+                    _ => Message::OpenFloatingWindow(FloatingWindow::edit_item_form(item)),
+                }
             } else {
                 Message::Noop
             }
@@ -226,7 +229,10 @@ fn action_to_message(state: &AppState, action: KeyAction) -> Message {
         KeyAction::NewItem => Message::OpenFloatingWindow(FloatingWindow::new_kind_selector()),
         KeyAction::EditItem => {
             if let Some(item) = state.selected_item() {
-                Message::OpenFloatingWindow(FloatingWindow::edit_item_form(item))
+                match state.ui_state.focused_pane {
+                    Pane::Detail => Message::EditField(state.ui_state.detail_selected_field),
+                    _ => Message::OpenFloatingWindow(FloatingWindow::edit_item_form(item)),
+                }
             } else {
                 Message::Noop
             }
@@ -242,7 +248,10 @@ fn action_to_message(state: &AppState, action: KeyAction) -> Message {
                 Message::Noop
             }
         }
-        KeyAction::CopyContent => Message::CopyCurrentItem,
+        KeyAction::CopyContent => match state.ui_state.focused_pane {
+            Pane::Detail => Message::CopyField(state.ui_state.detail_selected_field),
+            _ => Message::CopyCurrentItem,
+        },
         KeyAction::ToggleReveal => Message::ToggleContentReveal,
         KeyAction::ToggleFavorite => {
             if let Some(id) = state

@@ -104,6 +104,10 @@ pub enum Message {
     CopyToClipboard { content: String, is_sensitive: bool },
     /// Copy the current item's primary content
     CopyCurrentItem,
+    /// Copy a specific field from the detail view
+    CopyField(usize),
+    /// Edit a specific field from the detail view
+    EditField(usize),
     /// Clear clipboard
     ClearClipboard,
 

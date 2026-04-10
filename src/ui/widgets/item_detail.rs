@@ -13,7 +13,7 @@ use ratatui::{
 use chrono::{DateTime, Utc};
 
 use crate::app::AppState;
-use crate::domain::{CustomFieldType, Item, ItemContent, Tag};
+use crate::domain::{Item, Tag};
 use crate::ui::theme::ThemePalette;
 use crate::utils::{icons, mask};
 
@@ -60,7 +60,9 @@ pub fn render(
         ])
         .split(block.inner(area));
 
-    let lines = build_detail_lines(&item, tags, revealed, theme);
+    let selected_field_idx = state.ui_state.detail_selected_field;
+    let is_focused = state.ui_state.focused_pane == crate::app::Pane::Detail;
+    let lines = build_detail_lines(&item, tags, revealed, theme, selected_field_idx, is_focused);
 
     let paragraph = Paragraph::new(lines)
         .wrap(Wrap { trim: false })
@@ -79,6 +81,8 @@ fn build_detail_lines<'a>(
     tags: &[Tag],
     revealed: bool,
     theme: &'a ThemePalette,
+    selected_field_idx: usize,
+    is_focused: bool,
 ) -> Vec<Line<'a>> {
     let mut lines = vec![];
 
@@ -105,7 +109,7 @@ fn build_detail_lines<'a>(
     lines.push(Line::from(""));
 
     // Content section based on item type
-    lines.extend(build_content_section(item, revealed, theme));
+    lines.extend(build_content_section(item, revealed, theme, selected_field_idx, is_focused));
 
     // Notes section
     if let Some(ref notes) = item.notes {
@@ -171,167 +175,57 @@ fn build_content_section<'a>(
     item: &Item,
     revealed: bool,
     theme: &'a ThemePalette,
+    selected_field_idx: usize,
+    is_focused: bool,
 ) -> Vec<Line<'a>> {
     let mut lines = vec![];
+    let fields = item.get_fields();
 
-    match &item.content {
-        ItemContent::Generic { value } => {
-            lines.push(build_field_line("Value", value, !revealed, theme)); // !revealed = should mask
+    for (idx, (label, value, is_sensitive, _)) in fields.iter().enumerate() {
+        let is_selected = is_focused && idx == selected_field_idx;
+
+        let display_value = if *is_sensitive && !revealed {
+            mask::mask_content(value)
+        } else {
+            value.to_string()
+        };
+
+        let bg_color = if is_selected {
+            theme.selection_bg
+        } else {
+            theme.bg
+        };
+
+        let mut spans = vec![];
+        if is_selected {
+            spans.push(Span::styled(
+                " > ",
+                Style::default().fg(theme.accent).bg(bg_color).add_modifier(Modifier::BOLD),
+            ));
+        } else {
+            spans.push(Span::styled("   ", Style::default().bg(bg_color)));
         }
 
-        ItemContent::CryptoSeed {
-            seed_phrase,
-            derivation_path,
-            network,
-        } => {
-            // Render seed phrase in a box like notes
-            lines.push(Line::from(Span::styled(
-                "╭─ Seed Phrase",
-                Style::default().fg(theme.fg_muted),
-            )));
+        spans.push(Span::styled(
+            format!("{}: ", label),
+            Style::default().fg(if is_selected { theme.fg } else { theme.fg_muted }).bg(bg_color),
+        ));
 
-            // Split seed phrase into words and display in box
-            if !revealed {
-                // When hidden, show masked version
-                lines.push(Line::from(Span::styled(
-                    format!("│ {}", mask::mask_content(seed_phrase)),
-                    Style::default().fg(theme.fg),
-                )));
-            } else {
-                // When revealed, show actual words in the box
-                for line in seed_phrase.lines() {
-                    lines.push(Line::from(Span::styled(
-                        format!("│ {}", line),
-                        Style::default().fg(theme.fg),
-                    )));
-                }
-            }
+        spans.push(Span::styled(
+            display_value,
+            Style::default()
+                .fg(if *is_sensitive && !revealed {
+                    theme.sensitive_mask
+                } else {
+                    theme.fg
+                })
+                .bg(bg_color),
+        ));
 
-            lines.push(Line::from(Span::styled(
-                "╰─",
-                Style::default().fg(theme.fg_muted),
-            )));
-
-            if let Some(path) = derivation_path {
-                lines.push(build_field_line("Derivation Path", path, false, theme));
-            }
-            if let Some(net) = network {
-                lines.push(build_field_line("Network", net, false, theme));
-            }
-        }
-
-        ItemContent::Password {
-            username,
-            password,
-            url,
-            totp_secret,
-        } => {
-            if let Some(user) = username {
-                lines.push(build_field_line("Username", user, false, theme));
-            }
-            lines.push(build_field_line("Password", password, !revealed, theme)); // !revealed = should mask
-            if let Some(u) = url {
-                lines.push(build_field_line("URL", u, false, theme));
-            }
-            if let Some(_totp) = totp_secret {
-                lines.push(Line::from(vec![
-                    Span::styled("TOTP: ", Style::default().fg(theme.fg_muted)),
-                    Span::styled(
-                        if revealed {
-                            "configured"
-                        } else {
-                            "••••••"
-                        },
-                        Style::default().fg(theme.fg),
-                    ),
-                ]));
-            }
-        }
-
-        ItemContent::SecureNote { content } => {
-            lines.push(Line::from(Span::styled(
-                "Content:",
-                Style::default().fg(theme.fg_muted),
-            )));
-            let display = if revealed {
-                content.clone()
-            } else {
-                mask::mask_content(content)
-            };
-            for line in display.lines() {
-                lines.push(Line::from(Span::styled(
-                    format!("  {}", line),
-                    Style::default().fg(if revealed {
-                        theme.fg
-                    } else {
-                        theme.sensitive_mask
-                    }),
-                )));
-            }
-        }
-
-        ItemContent::ApiKey {
-            key,
-            service,
-            expires_at,
-        } => {
-            if let Some(svc) = service {
-                lines.push(build_field_line("Service", svc, false, theme));
-            }
-            lines.push(build_field_line("API Key", key, !revealed, theme)); // !revealed = should mask
-            if let Some(exp) = expires_at {
-                lines.push(build_field_line(
-                    "Expires",
-                    &format_datetime(*exp),
-                    false,
-                    theme,
-                ));
-            }
-        }
-        ItemContent::Custom { fields } => {
-            if fields.is_empty() {
-                lines.push(Line::from(Span::styled(
-                    "No custom fields configured",
-                    Style::default().fg(theme.fg_muted),
-                )));
-            } else {
-                for field in fields {
-                    let sensitive =
-                        matches!(field.field_type, CustomFieldType::Secret) && !revealed;
-                    let label = format!("{} ({})", field.key, field.field_type.as_str());
-                    lines.push(build_field_line(&label, &field.value, sensitive, theme));
-                }
-            }
-        }
+        lines.push(Line::from(spans));
     }
 
     lines
-}
-
-/// Build a single field line with optional masking
-fn build_field_line<'a>(
-    label: &str,
-    value: &str,
-    sensitive: bool,
-    theme: &'a ThemePalette,
-) -> Line<'a> {
-    let display_value = if sensitive {
-        mask::mask_content(value)
-    } else {
-        value.to_string()
-    };
-
-    Line::from(vec![
-        Span::styled(format!("{}: ", label), Style::default().fg(theme.fg_muted)),
-        Span::styled(
-            display_value,
-            Style::default().fg(if sensitive {
-                theme.sensitive_mask
-            } else {
-                theme.fg
-            }),
-        ),
-    ])
 }
 
 /// Render action buttons with embedded keyboard hints at bottom of detail pane

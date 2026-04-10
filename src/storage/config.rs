@@ -28,7 +28,7 @@ impl Default for AppConfig {
     fn default() -> Self {
         Self {
             theme: ThemeChoice::CatppuccinMocha,
-            clipboard_timeout_secs: 30,
+            clipboard_timeout_secs: 60,
             auto_lock_enabled: true,
             auto_lock_timeout_secs: 300, // 5 minutes
             show_icons: true,
@@ -216,7 +216,7 @@ mod tests {
     fn test_config_default() {
         let config = AppConfig::default();
         assert_eq!(config.theme, ThemeChoice::CatppuccinMocha);
-        assert_eq!(config.clipboard_timeout_secs, 30);
+        assert_eq!(config.clipboard_timeout_secs, 60);
         assert!(config.auto_lock_enabled);
     }
 

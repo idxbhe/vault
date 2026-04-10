@@ -323,6 +323,7 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
                 && vs.vault.get_item(id).is_some() {
                     vs.selected_item_id = Some(id);
                     state.ui_state.detail_scroll_offset = 0;
+                    state.ui_state.detail_selected_field = 0;
                 }
             Effect::none()
         }
@@ -626,6 +627,46 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
                         },
                     );
                 }
+            Effect::none()
+        }
+
+        Message::CopyField(index) => {
+            if let Some(item) = state.selected_item() {
+                let fields = item.get_fields();
+                if let Some((_, value, is_sensitive, _)) = fields.get(index) {
+                    return update(
+                        state,
+                        Message::CopyToClipboard {
+                            content: value.clone(),
+                            is_sensitive: *is_sensitive,
+                        },
+                    );
+                }
+            }
+            Effect::none()
+        }
+
+        Message::EditField(index) => {
+            // Get the item, build edit form, and try to focus the specific field index
+            if let Some(item) = state.selected_item() {
+                let fields = item.get_fields();
+                let target_form_field = fields.get(index).and_then(|f| f.3.clone());
+
+                let msg = Message::OpenFloatingWindow(FloatingWindow::edit_item_form(item));
+
+                // Then we apply it, and then modify the focused field manually in state since EditItem form is created
+                let eff = update(state, msg);
+
+                if let Some(FloatingWindow::EditItem { ref mut form, .. }) = state.ui_state.floating_window {
+                    if let Some(target) = target_form_field {
+                        if let Some(pos) = form.fields.iter().position(|f| *f == target) {
+                            form.focused_field = pos;
+                        }
+                    }
+                }
+
+                return eff;
+            }
             Effect::none()
         }
 
@@ -1490,7 +1531,10 @@ fn select_adjacent_item(state: &mut AppState, delta: i32) {
 
     if let Some(id) = items.get(new_idx)
         && let Some(ref mut vs) = state.vault_state {
-            vs.selected_item_id = Some(*id);
+            if vs.selected_item_id != Some(*id) {
+                vs.selected_item_id = Some(*id);
+                state.ui_state.detail_selected_field = 0;
+            }
         }
 }
 
@@ -1578,8 +1622,20 @@ fn handle_scroll(state: &mut AppState, direction: ScrollDirection) {
             (&mut state.ui_state.list_scroll_offset, max)
         }
         Pane::Detail => {
-            // Detail scroll max would be based on content height
-            (&mut state.ui_state.detail_scroll_offset, 100)
+            let max_fields = state.selected_item()
+                .map(|item| item.get_fields().len().saturating_sub(1))
+                .unwrap_or(0);
+
+            let offset = &mut state.ui_state.detail_selected_field;
+            match direction {
+                ScrollDirection::Up => *offset = offset.saturating_sub(1),
+                ScrollDirection::Down => *offset = (*offset + 1).min(max_fields),
+                ScrollDirection::PageUp => *offset = offset.saturating_sub(10),
+                ScrollDirection::PageDown => *offset = (*offset + 10).min(max_fields),
+                ScrollDirection::Top => *offset = 0,
+                ScrollDirection::Bottom => *offset = max_fields,
+            }
+            return;
         }
         Pane::Search => return,
     };
@@ -2383,6 +2439,20 @@ fn create_item_from_form(
                 form.get_value(&FormField::CustomFields).unwrap_or_default(),
             )?,
         },
+        crate::domain::ItemKind::Totp => ItemContent::Totp {
+            issuer: form
+                .get_value(&FormField::Issuer)
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string()),
+            account_name: form
+                .get_value(&FormField::AccountName)
+                .unwrap_or("")
+                .to_string(),
+            secret: form
+                .get_value(&FormField::TotpSecret)
+                .unwrap_or("")
+                .to_string(),
+        },
     };
 
     let mut item = Item::new(&title, form.kind, content);
@@ -2457,6 +2527,20 @@ fn create_updates_from_form(
             fields: parse_custom_fields(
                 form.get_value(&FormField::CustomFields).unwrap_or_default(),
             )?,
+        }),
+        crate::domain::ItemKind::Totp => Some(ItemContent::Totp {
+            issuer: form
+                .get_value(&FormField::Issuer)
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string()),
+            account_name: form
+                .get_value(&FormField::AccountName)
+                .unwrap_or("")
+                .to_string(),
+            secret: form
+                .get_value(&FormField::TotpSecret)
+                .unwrap_or("")
+                .to_string(),
         }),
     };
 

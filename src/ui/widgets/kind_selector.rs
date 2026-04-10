@@ -75,6 +75,7 @@ fn kind_icon(kind: ItemKind) -> &'static str {
         ItemKind::Password => icons::item::PASSWORD,
         ItemKind::SecureNote => icons::item::NOTE,
         ItemKind::ApiKey => icons::item::API_KEY,
+        ItemKind::Totp => icons::item::TOTP,
         ItemKind::Custom => icons::item::CUSTOM,
     }
 }
