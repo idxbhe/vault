@@ -824,4 +824,51 @@ mod tests {
         assert!(notif.expires_at > Utc::now());
         assert_eq!(notif.level, NotificationLevel::Success);
     }
+
+    #[test]
+    fn test_push_undo() {
+        let mut vault_state = VaultState::new(
+            crate::domain::Vault::new("Test Vault"),
+            std::path::PathBuf::from("/tmp/test.vault"),
+            [0; 32],
+            [0; 32],
+            false,
+            crate::crypto::EncryptionMethod::Aes256Gcm,
+            None,
+        );
+
+        let item = crate::domain::Item::new(
+            "Test Item",
+            crate::domain::ItemKind::Generic,
+            crate::domain::ItemContent::Generic { value: "test".to_string() },
+        );
+        let snapshot = ItemSnapshot::from_item(&item);
+        let undo_entry1 = UndoEntry {
+            description: "First action".to_string(),
+            item_id: item.id,
+            previous_state: snapshot.clone(),
+        };
+        let undo_entry2 = UndoEntry {
+            description: "Second action".to_string(),
+            item_id: item.id,
+            previous_state: snapshot.clone(),
+        };
+
+        vault_state.undo_stack.push(undo_entry1);
+        vault_state.redo_stack.push(undo_entry2);
+
+        assert_eq!(vault_state.undo_stack.len(), 1);
+        assert_eq!(vault_state.redo_stack.len(), 1);
+
+        let new_undo_entry = UndoEntry {
+            description: "New action".to_string(),
+            item_id: item.id,
+            previous_state: snapshot,
+        };
+
+        vault_state.push_undo(new_undo_entry);
+
+        assert_eq!(vault_state.undo_stack.len(), 2);
+        assert_eq!(vault_state.redo_stack.len(), 0);
+    }
 }
