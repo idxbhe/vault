@@ -156,4 +156,20 @@ mod tests {
             assert!(!manager.has_pending_clear());
         }
     }
+
+    #[test]
+    fn test_clipboard_manager_clear_integration() {
+        let mut manager = ClipboardManager::new();
+
+        // Initially no pending clear
+        assert!(!manager.has_pending_clear());
+
+        // After secure copy, should have pending clear
+        let _ = manager.copy_secure("sensitive data");
+        assert!(manager.has_pending_clear());
+
+        // After clear, should no longer have pending clear
+        let _ = manager.clear();
+        assert!(!manager.has_pending_clear());
+    }
 }
