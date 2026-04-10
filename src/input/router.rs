@@ -40,7 +40,7 @@ fn route_login_key(state: &AppState, event: KeyEvent) -> Message {
     // Check login screen mode
     let login_state = &state.login_screen;
 
-    // If creating a new vault, all input goes to vault name field
+    // If creating a new vault, treat it as a form
     if login_state.creating_vault {
         return match event.code {
             KeyCode::Char(c) if !event.modifiers.contains(KeyModifiers::CONTROL) => {
@@ -52,6 +52,10 @@ fn route_login_key(state: &AppState, event: KeyEvent) -> Message {
             KeyCode::Right => Message::InputRight,
             KeyCode::Home => Message::InputHome,
             KeyCode::End => Message::InputEnd,
+            KeyCode::Tab => Message::FormNextField,
+            KeyCode::BackTab => Message::FormPrevField,
+            KeyCode::Down => Message::FormNextField,
+            KeyCode::Up => Message::FormPrevField,
             KeyCode::Enter => Message::InputSubmit,
             KeyCode::Esc => Message::CancelInput,
             KeyCode::Char('q') if event.modifiers.contains(KeyModifiers::CONTROL) => {

@@ -8,7 +8,6 @@ use std::time::Duration;
 use uuid::Uuid;
 
 use crate::domain::Item;
-use crate::ui::screens::login::CreateVaultStep;
 use crate::ui::screens::{
     ChangePasswordAction, ChangePasswordStep, RecoveryQuestionDraft, RecoverySetupAction,
     RecoverySetupStep, SecurityActionState, SettingKind, apply_setting, get_current_sub_index,
@@ -142,7 +141,7 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
         // === Login Flow ===
         Message::StartCreateVault => {
             // Switch login screen to "creating" mode
-            state.login_screen.reset_create_draft();
+            state.login_screen.reset_create_form();
             state.login_screen.creating_vault = true;
             state.login_screen.entering_password = false;
             state.login_screen.entering_keyfile_path = false;
@@ -150,7 +149,8 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
             state.login_screen.pending_unlock_password = None;
             state.login_screen.error_message = None;
             state.ui_state.input_buffer.clear();
-            state.ui_state.input_buffer.masked = false; // Vault name is not masked
+
+            state.ui_state.input_buffer.masked = false;
             Effect::none()
         }
 
@@ -208,13 +208,6 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
         }
 
         Message::LoginPrevStep => {
-            // Go back to previous step in vault creation
-            if state.login_screen.creating_vault {
-                if let Some(prev) = previous_create_step(&state.login_screen) {
-                    state.login_screen.create_step = prev;
-                    prepare_input_for_create_step(state);
-                }
-            }
             Effect::none()
         }
 
@@ -251,7 +244,7 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
             // Cancel any input mode and return to vault selection
             state.login_screen.entering_password = false;
             state.login_screen.entering_keyfile_path = false;
-            state.login_screen.reset_create_draft();
+            state.login_screen.reset_create_form();
             state.login_screen.pending_unlock_password = None;
             state.login_screen.password_recovery = None;
             state.login_screen.error_message = None;
@@ -693,21 +686,27 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
             }
 
             // Check if we're in a form or search
-            match &mut state.ui_state.floating_window {
-                Some(FloatingWindow::NewItem { form })
-                | Some(FloatingWindow::EditItem { form, .. }) => {
-                    form.insert(c);
+            if state.screen == Screen::Login && state.login_screen.creating_vault {
+                if let Some(buf) = state.login_screen.create_vault_form.active_input_mut() {
+                    buf.insert(c);
                 }
-                Some(FloatingWindow::Search {
-                    state: search_state,
-                }) => {
-                    search_state.insert(c);
-                    if let Some(ref vs) = state.vault_state {
-                        search_state.update_results(&vs.vault.items);
+            } else {
+                match &mut state.ui_state.floating_window {
+                    Some(FloatingWindow::NewItem { form })
+                    | Some(FloatingWindow::EditItem { form, .. }) => {
+                        form.insert(c);
                     }
-                }
-                _ => {
-                    state.ui_state.input_buffer.insert(c);
+                    Some(FloatingWindow::Search {
+                        state: search_state,
+                    }) => {
+                        search_state.insert(c);
+                        if let Some(ref vs) = state.vault_state {
+                            search_state.update_results(&vs.vault.items);
+                        }
+                    }
+                    _ => {
+                        state.ui_state.input_buffer.insert(c);
+                    }
                 }
             }
             Effect::none()
@@ -719,74 +718,106 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
                 state.login_screen.error_message = None;
             }
 
-            match &mut state.ui_state.floating_window {
-                Some(FloatingWindow::NewItem { form })
-                | Some(FloatingWindow::EditItem { form, .. }) => {
-                    form.backspace();
+            if state.screen == Screen::Login && state.login_screen.creating_vault {
+                if let Some(buf) = state.login_screen.create_vault_form.active_input_mut() {
+                    buf.backspace();
                 }
-                Some(FloatingWindow::Search {
-                    state: search_state,
-                }) => {
-                    search_state.backspace();
-                    if let Some(ref vs) = state.vault_state {
-                        search_state.update_results(&vs.vault.items);
+            } else {
+                match &mut state.ui_state.floating_window {
+                    Some(FloatingWindow::NewItem { form })
+                    | Some(FloatingWindow::EditItem { form, .. }) => {
+                        form.backspace();
                     }
-                }
-                _ => {
-                    state.ui_state.input_buffer.backspace();
+                    Some(FloatingWindow::Search {
+                        state: search_state,
+                    }) => {
+                        search_state.backspace();
+                        if let Some(ref vs) = state.vault_state {
+                            search_state.update_results(&vs.vault.items);
+                        }
+                    }
+                    _ => {
+                        state.ui_state.input_buffer.backspace();
+                    }
                 }
             }
             Effect::none()
         }
 
         Message::InputDelete => {
-            state.ui_state.input_buffer.delete();
+            if state.screen == Screen::Login && state.login_screen.creating_vault {
+                if let Some(buf) = state.login_screen.create_vault_form.active_input_mut() {
+                    buf.delete();
+                }
+            } else {
+                state.ui_state.input_buffer.delete();
+            }
             Effect::none()
         }
 
         Message::InputLeft => {
-            match &mut state.ui_state.floating_window {
-                Some(FloatingWindow::NewItem { form })
-                | Some(FloatingWindow::EditItem { form, .. }) => {
-                    form.move_left();
+            if state.screen == Screen::Login && state.login_screen.creating_vault {
+                if let Some(buf) = state.login_screen.create_vault_form.active_input_mut() {
+                    buf.move_left();
                 }
-                Some(FloatingWindow::Search {
-                    state: search_state,
-                }) => {
-                    search_state.move_left();
-                }
-                _ => {
-                    state.ui_state.input_buffer.move_left();
+            } else {
+                match &mut state.ui_state.floating_window {
+                    Some(FloatingWindow::NewItem { form })
+                    | Some(FloatingWindow::EditItem { form, .. }) => {
+                        form.move_left();
+                    }
+                    Some(FloatingWindow::Search {
+                        state: search_state,
+                    }) => {
+                        search_state.move_left();
+                    }
+                    _ => {
+                        state.ui_state.input_buffer.move_left();
+                    }
                 }
             }
             Effect::none()
         }
 
         Message::InputRight => {
-            match &mut state.ui_state.floating_window {
-                Some(FloatingWindow::NewItem { form })
-                | Some(FloatingWindow::EditItem { form, .. }) => {
-                    form.move_right();
+            if state.screen == Screen::Login && state.login_screen.creating_vault {
+                if let Some(buf) = state.login_screen.create_vault_form.active_input_mut() {
+                    buf.move_right();
                 }
-                Some(FloatingWindow::Search {
-                    state: search_state,
-                }) => {
-                    search_state.move_right();
-                }
-                _ => {
-                    state.ui_state.input_buffer.move_right();
+            } else {
+                match &mut state.ui_state.floating_window {
+                    Some(FloatingWindow::NewItem { form })
+                    | Some(FloatingWindow::EditItem { form, .. }) => {
+                        form.move_right();
+                    }
+                    Some(FloatingWindow::Search {
+                        state: search_state,
+                    }) => {
+                        search_state.move_right();
+                    }
+                    _ => {
+                        state.ui_state.input_buffer.move_right();
+                    }
                 }
             }
             Effect::none()
         }
 
         Message::InputHome => {
-            state.ui_state.input_buffer.home();
+            if state.screen == Screen::Login && state.login_screen.creating_vault {
+                // Not supported
+            } else {
+                state.ui_state.input_buffer.home();
+            }
             Effect::none()
         }
 
         Message::InputEnd => {
-            state.ui_state.input_buffer.end();
+            if state.screen == Screen::Login && state.login_screen.creating_vault {
+                // Not supported
+            } else {
+                state.ui_state.input_buffer.end();
+            }
             Effect::none()
         }
 
@@ -794,6 +825,14 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
             // Context-aware submit handling
             if state.screen == Screen::PasswordRecovery {
                 return handle_password_recovery_submit(state);
+            }
+
+            if state.screen == Screen::Login && state.login_screen.creating_vault {
+                if state.login_screen.create_vault_form.focused_field == crate::ui::screens::login::CreateVaultField::CreateButton {
+                    return handle_create_vault_submit(state);
+                } else {
+                    return update(state, Message::FormNextField);
+                }
             }
 
             if state.screen == Screen::Settings {
@@ -940,42 +979,80 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
 
         // === Form ===
         Message::FormNextField => {
-            match &mut state.ui_state.floating_window {
-                Some(FloatingWindow::NewItem { form })
-                | Some(FloatingWindow::EditItem { form, .. }) => {
-                    form.next_field();
+            if state.screen == Screen::Login && state.login_screen.creating_vault {
+                let q_count = state.login_screen.create_vault_form.recovery_questions_count.text.trim().parse::<usize>().unwrap_or(0);
+                let use_keyfile_text = state.login_screen.create_vault_form.use_keyfile.text.trim().to_lowercase();
+                let use_keyfile = use_keyfile_text == "yes" || use_keyfile_text == "y";
+                state.login_screen.create_vault_form.focused_field = state.login_screen.create_vault_form.focused_field.next(q_count, use_keyfile);
+            } else {
+                match &mut state.ui_state.floating_window {
+                    Some(FloatingWindow::NewItem { form })
+                    | Some(FloatingWindow::EditItem { form, .. }) => {
+                        form.next_field();
+                    }
+                    _ => {}
                 }
-                _ => {}
             }
             Effect::none()
         }
 
         Message::FormPrevField => {
-            match &mut state.ui_state.floating_window {
-                Some(FloatingWindow::NewItem { form })
-                | Some(FloatingWindow::EditItem { form, .. }) => {
-                    form.prev_field();
+            if state.screen == Screen::Login && state.login_screen.creating_vault {
+                let q_count = state.login_screen.create_vault_form.recovery_questions_count.text.trim().parse::<usize>().unwrap_or(0);
+                let use_keyfile_text = state.login_screen.create_vault_form.use_keyfile.text.trim().to_lowercase();
+                let use_keyfile = use_keyfile_text == "yes" || use_keyfile_text == "y";
+                state.login_screen.create_vault_form.focused_field = state.login_screen.create_vault_form.focused_field.prev(q_count, use_keyfile);
+            } else {
+                match &mut state.ui_state.floating_window {
+                    Some(FloatingWindow::NewItem { form })
+                    | Some(FloatingWindow::EditItem { form, .. }) => {
+                        form.prev_field();
+                    }
+                    _ => {}
                 }
-                _ => {}
             }
             Effect::none()
         }
 
         Message::FormFocusField(index) => {
-            match &mut state.ui_state.floating_window {
-                Some(FloatingWindow::NewItem { form })
-                | Some(FloatingWindow::EditItem { form, .. }) => {
-                    if index < form.fields.len() {
-                        form.focused_field = index;
-                        form.cursor = form.values[index].len();
+            if state.screen == Screen::Login && state.login_screen.creating_vault {
+                // Focus handling for custom fields mapped back from the enum.
+                let focused = match index {
+                    0 => crate::ui::screens::login::CreateVaultField::Name,
+                    1 => crate::ui::screens::login::CreateVaultField::Password,
+                    2 => crate::ui::screens::login::CreateVaultField::ConfirmPassword,
+                    3 => crate::ui::screens::login::CreateVaultField::UseKeyfile,
+                    4 => crate::ui::screens::login::CreateVaultField::KeyfilePath,
+                    5 => crate::ui::screens::login::CreateVaultField::RecoveryQuestionsCount,
+                    6 => crate::ui::screens::login::CreateVaultField::RecoveryQuestion1,
+                    7 => crate::ui::screens::login::CreateVaultField::RecoveryAnswer1,
+                    8 => crate::ui::screens::login::CreateVaultField::RecoveryQuestion2,
+                    9 => crate::ui::screens::login::CreateVaultField::RecoveryAnswer2,
+                    10 => crate::ui::screens::login::CreateVaultField::RecoveryQuestion3,
+                    11 => crate::ui::screens::login::CreateVaultField::RecoveryAnswer3,
+                    _ => crate::ui::screens::login::CreateVaultField::Name,
+                };
+                state.login_screen.create_vault_form.focused_field = focused;
+            } else {
+                match &mut state.ui_state.floating_window {
+                    Some(FloatingWindow::NewItem { form })
+                    | Some(FloatingWindow::EditItem { form, .. }) => {
+                        if index < form.fields.len() {
+                            form.focused_field = index;
+                            form.cursor = form.values[index].len();
+                        }
                     }
+                    _ => {}
                 }
-                _ => {}
             }
             Effect::none()
         }
 
         Message::FormSubmit => {
+            if state.screen == Screen::Login && state.login_screen.creating_vault {
+                return handle_create_vault_submit(state);
+            }
+
             // Handle form submission
             match state.ui_state.floating_window.take() {
                 Some(FloatingWindow::NewItem { form }) => {
@@ -1825,14 +1902,6 @@ fn handle_settings_security_action_submit(state: &mut AppState) -> Effect {
     }
 }
 
-fn parse_yes_no(input: &str) -> Option<bool> {
-    match input.trim().to_ascii_lowercase().as_str() {
-        "" => Some(false),
-        "y" | "yes" | "true" | "1" => Some(true),
-        "n" | "no" | "false" | "0" => Some(false),
-        _ => None,
-    }
-}
 
 fn settings_option_count(_state: &AppState, setting_index: usize) -> usize {
     use crate::ui::screens::SettingKind;
@@ -1848,68 +1917,6 @@ fn settings_option_count(_state: &AppState, setting_index: usize) -> usize {
         SettingKind::ClipboardTimeout => 5,
         SettingKind::ChangeMasterPassword | SettingKind::ConfigureRecovery => 0,
     }
-}
-
-fn previous_create_step(login: &crate::ui::screens::LoginScreen) -> Option<CreateVaultStep> {
-    match login.create_step {
-        CreateVaultStep::Name => None,
-        CreateVaultStep::Password => Some(CreateVaultStep::Name),
-        CreateVaultStep::ConfirmPassword => Some(CreateVaultStep::Password),
-        CreateVaultStep::EncryptionMethod => Some(CreateVaultStep::ConfirmPassword),
-        CreateVaultStep::KeyfileOption => Some(CreateVaultStep::EncryptionMethod),
-        CreateVaultStep::KeyfilePath => Some(CreateVaultStep::KeyfileOption),
-        CreateVaultStep::RecoveryQuestionCount => {
-            if login.new_vault_use_keyfile {
-                Some(CreateVaultStep::KeyfilePath)
-            } else {
-                Some(CreateVaultStep::KeyfileOption)
-            }
-        }
-        CreateVaultStep::RecoveryQuestion => Some(CreateVaultStep::RecoveryQuestionCount),
-        CreateVaultStep::RecoveryAnswer => Some(CreateVaultStep::RecoveryQuestion),
-        CreateVaultStep::ConfirmCreate => Some(CreateVaultStep::RecoveryQuestionCount),
-    }
-}
-
-fn prepare_input_for_create_step(state: &mut AppState) {
-    let (text, masked) = match state.login_screen.create_step {
-        CreateVaultStep::Name => (state.login_screen.new_vault_name.clone(), false),
-        CreateVaultStep::Password | CreateVaultStep::ConfirmPassword => (String::new(), true),
-        CreateVaultStep::EncryptionMethod => (
-            state
-                .login_screen
-                .new_vault_encryption_method
-                .profile_label(),
-            false,
-        ),
-        CreateVaultStep::KeyfileOption => (
-            if state.login_screen.new_vault_use_keyfile {
-                "yes".to_string()
-            } else {
-                "no".to_string()
-            },
-            false,
-        ),
-        CreateVaultStep::KeyfilePath => (state.login_screen.new_vault_keyfile_path.clone(), false),
-        CreateVaultStep::RecoveryQuestionCount => (
-            if state.login_screen.new_vault_recovery_question_count == 0 {
-                String::new()
-            } else {
-                state
-                    .login_screen
-                    .new_vault_recovery_question_count
-                    .to_string()
-            },
-            false,
-        ),
-        CreateVaultStep::RecoveryQuestion => (String::new(), false),
-        CreateVaultStep::RecoveryAnswer => (String::new(), true),
-        CreateVaultStep::ConfirmCreate => (String::new(), false),
-    };
-
-    state.ui_state.input_buffer.text = text;
-    state.ui_state.input_buffer.masked = masked;
-    state.ui_state.input_buffer.cursor = state.ui_state.input_buffer.text.len();
 }
 
 fn handle_password_recovery_submit(state: &mut AppState) -> Effect {
@@ -1990,145 +1997,77 @@ fn handle_password_recovery_submit(state: &mut AppState) -> Effect {
 }
 
 fn handle_create_vault_submit(state: &mut AppState) -> Effect {
-    let input = state.ui_state.input_buffer.text.clone();
+    let form = &state.login_screen.create_vault_form;
 
-    match state.login_screen.create_step {
-        CreateVaultStep::Name => {
-            let name = input.trim();
-            if name.is_empty() {
-                state.login_screen.error_message = Some("Vault name cannot be empty".to_string());
-                return Effect::none();
-            }
-            state.login_screen.new_vault_name = name.to_string();
-            state.login_screen.create_step = CreateVaultStep::Password;
-        }
-        CreateVaultStep::Password => {
-            if input.len() < 4 {
-                state.login_screen.error_message =
-                    Some("Password must be at least 4 characters".to_string());
-                return Effect::none();
-            }
-            state.login_screen.new_vault_password = input;
-            state.login_screen.create_step = CreateVaultStep::ConfirmPassword;
-        }
-        CreateVaultStep::ConfirmPassword => {
-            if input != state.login_screen.new_vault_password {
-                state.login_screen.error_message = Some("Passwords do not match".to_string());
-                state.ui_state.input_buffer.clear();
-                return Effect::none();
-            }
-            state.login_screen.create_step = CreateVaultStep::EncryptionMethod;
-        }
-        CreateVaultStep::EncryptionMethod => {
-            // Current implementation supports AES-256-GCM only.
-            state.login_screen.new_vault_encryption_method =
-                crate::crypto::EncryptionMethod::Aes256Gcm;
-            state.login_screen.create_step = CreateVaultStep::KeyfileOption;
-        }
-        CreateVaultStep::KeyfileOption => {
-            let Some(use_keyfile) = parse_yes_no(&input) else {
-                state.login_screen.error_message =
-                    Some("Enter yes/no for keyfile option".to_string());
-                return Effect::none();
-            };
-            state.login_screen.new_vault_use_keyfile = use_keyfile;
-            state.login_screen.create_step = if use_keyfile {
-                CreateVaultStep::KeyfilePath
-            } else {
-                CreateVaultStep::RecoveryQuestionCount
-            };
-        }
-        CreateVaultStep::KeyfilePath => {
-            let keyfile_path = input.trim();
-            if keyfile_path.is_empty() {
-                state.login_screen.error_message = Some("Keyfile path cannot be empty".to_string());
-                return Effect::none();
-            }
-            state.login_screen.new_vault_keyfile_path = keyfile_path.to_string();
-            state.login_screen.create_step = CreateVaultStep::RecoveryQuestionCount;
-        }
-        CreateVaultStep::RecoveryQuestionCount => {
-            let parsed = input
-                .trim()
-                .parse::<u8>()
-                .map_err(|_| ())
-                .and_then(|n| if n <= 3 { Ok(n) } else { Err(()) });
-            let Ok(count) = parsed else {
-                state.login_screen.error_message =
-                    Some("Enter number of security questions from 0 to 3".to_string());
-                return Effect::none();
-            };
-
-            state.login_screen.new_vault_recovery_question_count = count;
-            state.login_screen.new_vault_recovery_questions.clear();
-            state.login_screen.pending_recovery_question = None;
-            state.login_screen.create_step = if count == 0 {
-                CreateVaultStep::ConfirmCreate
-            } else {
-                CreateVaultStep::RecoveryQuestion
-            };
-        }
-        CreateVaultStep::RecoveryQuestion => {
-            let question = input.trim();
-            if question.is_empty() {
-                state.login_screen.error_message =
-                    Some("Security question cannot be empty".to_string());
-                return Effect::none();
-            }
-            state.login_screen.pending_recovery_question = Some(question.to_string());
-            state.login_screen.create_step = CreateVaultStep::RecoveryAnswer;
-        }
-        CreateVaultStep::RecoveryAnswer => {
-            if input.trim().is_empty() {
-                state.login_screen.error_message =
-                    Some("Security answer cannot be empty".to_string());
-                return Effect::none();
-            }
-
-            let Some(question) = state.login_screen.pending_recovery_question.take() else {
-                state.login_screen.error_message =
-                    Some("Missing question state. Re-enter question.".to_string());
-                state.login_screen.create_step = CreateVaultStep::RecoveryQuestion;
-                return Effect::none();
-            };
-
-            state.login_screen.new_vault_recovery_questions.push(
-                crate::ui::screens::login::SecurityQuestionDraft {
-                    question,
-                    answer: input,
-                },
-            );
-
-            state.login_screen.create_step =
-                if state.login_screen.new_vault_recovery_questions.len()
-                    < state.login_screen.new_vault_recovery_question_count as usize
-                {
-                    CreateVaultStep::RecoveryQuestion
-                } else {
-                    CreateVaultStep::ConfirmCreate
-                };
-        }
-        CreateVaultStep::ConfirmCreate => return finalize_create_vault(state),
-    }
-
-    state.login_screen.error_message = None;
-    prepare_input_for_create_step(state);
-    Effect::none()
-}
-
-fn finalize_create_vault(state: &mut AppState) -> Effect {
-    let vault_name = state.login_screen.new_vault_name.trim().to_string();
+    let vault_name = form.name.text.trim().to_string();
     if vault_name.is_empty() {
         state.login_screen.error_message = Some("Vault name cannot be empty".to_string());
         return Effect::none();
     }
 
-    let password = state.login_screen.new_vault_password.clone();
+    let password = form.password.text.clone();
     if password.len() < 4 {
         state.login_screen.error_message =
             Some("Password must be at least 4 characters".to_string());
         return Effect::none();
     }
+
+    let confirm = form.confirm_password.text.clone();
+    if password != confirm {
+        state.login_screen.error_message = Some("Passwords do not match".to_string());
+        return Effect::none();
+    }
+
+    let use_keyfile_str = form.use_keyfile.text.clone();
+    let use_keyfile = use_keyfile_str.trim().eq_ignore_ascii_case("y") || use_keyfile_str.trim().eq_ignore_ascii_case("yes");
+
+    let keyfile_path = form.keyfile_path.text.trim().to_string();
+    if use_keyfile && keyfile_path.is_empty() {
+        state.login_screen.error_message = Some("Keyfile path cannot be empty if using keyfile".to_string());
+        return Effect::none();
+    }
+
+    let q_count_str = form.recovery_questions_count.text.clone();
+    let q_count = q_count_str.trim().parse::<usize>().unwrap_or(0);
+
+    if q_count > 3 {
+        state.login_screen.error_message = Some("Maximum 3 security questions allowed".to_string());
+        return Effect::none();
+    }
+
+    let mut draft_qs = Vec::new();
+
+    if q_count > 0 {
+        let q1 = form.question1.text.trim().to_string();
+        let a1 = form.answer1.text.trim().to_string();
+        if q1.is_empty() || a1.is_empty() {
+            state.login_screen.error_message = Some("Question 1 and its answer cannot be empty".to_string());
+            return Effect::none();
+        }
+        draft_qs.push((q1, a1));
+    }
+
+    if q_count > 1 {
+        let q2 = form.question2.text.trim().to_string();
+        let a2 = form.answer2.text.trim().to_string();
+        if q2.is_empty() || a2.is_empty() {
+            state.login_screen.error_message = Some("Question 2 and its answer cannot be empty".to_string());
+            return Effect::none();
+        }
+        draft_qs.push((q2, a2));
+    }
+
+    if q_count > 2 {
+        let q3 = form.question3.text.trim().to_string();
+        let a3 = form.answer3.text.trim().to_string();
+        if q3.is_empty() || a3.is_empty() {
+            state.login_screen.error_message = Some("Question 3 and its answer cannot be empty".to_string());
+            return Effect::none();
+        }
+        draft_qs.push((q3, a3));
+    }
+
+    state.login_screen.error_message = None;
 
     let vault_filename = format!("{}.vault", sanitize_vault_filename(&vault_name));
     let vault_path = directories::ProjectDirs::from("com", "vault", "vault")
@@ -2146,16 +2085,10 @@ fn finalize_create_vault(state: &mut AppState) -> Effect {
 
     let secure_password = crate::crypto::SecureString::new(password);
     let mut vault = crate::domain::Vault::new(&vault_name);
-    let encryption_method = state.login_screen.new_vault_encryption_method;
+    let encryption_method = crate::crypto::EncryptionMethod::Aes256Gcm;
 
     let mut keyfile_data: Option<Vec<u8>> = None;
-    if state.login_screen.new_vault_use_keyfile {
-        let keyfile_path = state.login_screen.new_vault_keyfile_path.trim().to_string();
-        if keyfile_path.is_empty() {
-            state.login_screen.error_message = Some("Keyfile path cannot be empty".to_string());
-            return Effect::none();
-        }
-
+    if use_keyfile {
         let keyfile_path_buf = std::path::PathBuf::from(&keyfile_path);
         if keyfile_path_buf.exists() {
             match crate::crypto::KeyFile::load(&keyfile_path_buf) {
@@ -2179,15 +2112,13 @@ fn finalize_create_vault(state: &mut AppState) -> Effect {
         }
     }
 
-    let recovery_metadata = if state.login_screen.new_vault_recovery_question_count > 0 {
-        let question_answers = state
-            .login_screen
-            .new_vault_recovery_questions
-            .iter()
-            .map(|qa| {
+    let recovery_metadata = if q_count > 0 {
+        let question_answers = draft_qs
+            .into_iter()
+            .map(|(q, a)| {
                 (
-                    qa.question.clone(),
-                    crate::crypto::SecureString::new(qa.answer.clone()),
+                    q,
+                    crate::crypto::SecureString::new(a),
                 )
             })
             .collect::<Vec<_>>();
@@ -2252,7 +2183,7 @@ fn finalize_create_vault(state: &mut AppState) -> Effect {
         );
     }
 
-    state.login_screen.reset_create_draft();
+    state.login_screen.reset_create_form();
     state.login_screen.entering_password = false;
     state.login_screen.entering_keyfile_path = false;
     state.login_screen.pending_unlock_password = None;
@@ -2289,7 +2220,7 @@ fn transition_to_locked_state(state: &mut AppState) {
     state.clipboard_state.clear();
     state.login_screen.entering_password = false;
     state.login_screen.entering_keyfile_path = false;
-    state.login_screen.reset_create_draft();
+    state.login_screen.reset_create_form();
     state.login_screen.password_recovery = None;
     state.login_screen.pending_unlock_password = None;
     state.login_screen.error_message = None;
