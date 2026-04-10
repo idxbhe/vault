@@ -312,8 +312,8 @@ impl UIState {
     }
 
     /// Get current spinner character
-    pub fn spinner_char(&self) -> char {
-        const SPINNER: &[char] = &['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+    pub fn spinner_char(&self) -> &'static str {
+        const SPINNER: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
         SPINNER[self.spinner_frame as usize]
     }
 }

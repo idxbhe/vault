@@ -132,14 +132,14 @@ pub fn render(frame: &mut Frame, state: &mut AppState, theme: &ThemePalette) {
 
 /// Render the header with logo/title
 fn render_header(frame: &mut Frame, area: Rect, theme: &ThemePalette) {
+    let logo_style = Style::default()
+        .fg(theme.accent)
+        .add_modifier(Modifier::BOLD);
     let logo = vec![
         Line::from(vec![
-            Span::styled(
-                format!(" {} ", icons::ui::VAULT),
-                Style::default()
-                    .fg(theme.accent)
-                    .add_modifier(Modifier::BOLD),
-            ),
+            Span::styled(" ", logo_style),
+            Span::styled(icons::ui::VAULT, logo_style),
+            Span::styled(" ", logo_style),
             Span::styled(
                 "VAULT",
                 Style::default().fg(theme.fg).add_modifier(Modifier::BOLD),
@@ -261,7 +261,7 @@ fn render_vault_list(
 
 /// Create a list item for a vault entry
 fn create_vault_list_item<'a>(
-    entry: &VaultRegistryEntry,
+    entry: &'a VaultRegistryEntry,
     selected: bool,
     theme: &ThemePalette,
 ) -> ListItem<'a> {
@@ -282,9 +282,10 @@ fn create_vault_list_item<'a>(
     let selector = if selected { "▸ " } else { "  " };
 
     let line = Line::from(vec![
-        Span::styled(selector.to_string(), style),
-        Span::styled(format!("{} ", icon), Style::default().fg(theme.accent)),
-        Span::styled(entry.name.clone(), style),
+        Span::styled(selector, style),
+        Span::styled(icon, Style::default().fg(theme.accent)),
+        Span::raw(" "),
+        Span::styled(&entry.name, style),
     ]);
 
     ListItem::new(line)
@@ -305,7 +306,7 @@ fn render_password_form(
         .map(|e| e.name.as_str())
         .unwrap_or("Unknown");
 
-    let error_message = state.login_screen.error_message.clone();
+    let error_message = state.login_screen.error_message.as_deref();
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -318,15 +319,13 @@ fn render_password_form(
         .split(area);
 
     // Title
+    let title_style = Style::default().fg(theme.fg).add_modifier(Modifier::BOLD);
     let title = Paragraph::new(Line::from(vec![
-        Span::styled(
-            format!("{} ", icons::ui::VAULT_LOCKED),
-            Style::default().fg(theme.accent),
-        ),
-        Span::styled(
-            format!("Unlock \"{}\"", vault_name),
-            Style::default().fg(theme.fg).add_modifier(Modifier::BOLD),
-        ),
+        Span::styled(icons::ui::VAULT_LOCKED, Style::default().fg(theme.accent)),
+        Span::raw(" "),
+        Span::styled("Unlock \"", title_style),
+        Span::styled(vault_name, title_style),
+        Span::styled("\"", title_style),
     ]))
     .alignment(Alignment::Center);
 
@@ -355,13 +354,11 @@ fn render_password_form(
     frame.set_cursor_position((cursor_x, cursor_y));
 
     // Error message
-    if let Some(ref error) = error_message {
+    if let Some(error) = error_message {
         let error_text = Paragraph::new(Line::from(vec![
-            Span::styled(
-                format!("{} ", icons::ui::ERROR),
-                Style::default().fg(theme.error),
-            ),
-            Span::styled(error.clone(), Style::default().fg(theme.error)),
+            Span::styled(icons::ui::ERROR, Style::default().fg(theme.error)),
+            Span::raw(" "),
+            Span::styled(error, Style::default().fg(theme.error)),
         ]))
         .alignment(Alignment::Center);
 
@@ -384,7 +381,7 @@ fn render_keyfile_form(
         .map(|e| e.name.as_str())
         .unwrap_or("Unknown");
 
-    let error_message = state.login_screen.error_message.clone();
+    let error_message = state.login_screen.error_message.as_deref();
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -396,15 +393,13 @@ fn render_keyfile_form(
         ])
         .split(area);
 
+    let title_style = Style::default().fg(theme.fg).add_modifier(Modifier::BOLD);
     let title = Paragraph::new(Line::from(vec![
-        Span::styled(
-            format!("{} ", icons::item::API_KEY),
-            Style::default().fg(theme.accent),
-        ),
-        Span::styled(
-            format!("Keyfile for \"{}\"", vault_name),
-            Style::default().fg(theme.fg).add_modifier(Modifier::BOLD),
-        ),
+        Span::styled(icons::item::API_KEY, Style::default().fg(theme.accent)),
+        Span::raw(" "),
+        Span::styled("Keyfile for \"", title_style),
+        Span::styled(vault_name, title_style),
+        Span::styled("\"", title_style),
     ]))
     .alignment(Alignment::Center);
 
@@ -429,13 +424,11 @@ fn render_keyfile_form(
     let cursor_y = chunks[1].y + 1;
     frame.set_cursor_position((cursor_x, cursor_y));
 
-    if let Some(ref error) = error_message {
+    if let Some(error) = error_message {
         let error_text = Paragraph::new(Line::from(vec![
-            Span::styled(
-                format!("{} ", icons::ui::ERROR),
-                Style::default().fg(theme.error),
-            ),
-            Span::styled(error.clone(), Style::default().fg(theme.error)),
+            Span::styled(icons::ui::ERROR, Style::default().fg(theme.error)),
+            Span::raw(" "),
+            Span::styled(error, Style::default().fg(theme.error)),
         ]))
         .alignment(Alignment::Center);
 
@@ -451,7 +444,7 @@ fn render_create_vault_form(
     theme: &ThemePalette,
 ) {
     let step = state.login_screen.create_step;
-    let error_message = state.login_screen.error_message.clone();
+    let error_message = state.login_screen.error_message.as_deref();
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -466,10 +459,8 @@ fn render_create_vault_form(
 
     // Title
     let title = Paragraph::new(Line::from(vec![
-        Span::styled(
-            format!("{} ", icons::ui::VAULT),
-            Style::default().fg(theme.accent),
-        ),
+        Span::styled(icons::ui::VAULT, Style::default().fg(theme.accent)),
+        Span::raw(" "),
         Span::styled(
             "Create New Vault",
             Style::default().fg(theme.fg).add_modifier(Modifier::BOLD),
@@ -492,22 +483,27 @@ fn render_create_vault_form(
     frame.render_widget(step_indicator, chunks[1]);
 
     // Input field based on step
-    let (field_title, field_value) = match step {
-        0 => (" Vault Name ", state.ui_state.input_buffer.text.clone()),
-        1 => (" Password ", state.ui_state.input_buffer.display()),
-        2 => (" Confirm Password ", state.ui_state.input_buffer.display()),
-        _ => ("", String::new()),
+    let field_title = match step {
+        0 => " Vault Name ",
+        1 => " Password ",
+        2 => " Confirm Password ",
+        _ => "",
     };
 
-    let input = Paragraph::new(field_value)
-        .style(Style::default().fg(theme.fg))
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(theme.border_focused))
-                .border_type(ratatui::widgets::BorderType::Rounded)
-                .title(Span::styled(field_title, Style::default().fg(theme.accent))),
-        );
+    let input_block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(theme.border_focused))
+        .border_type(ratatui::widgets::BorderType::Rounded)
+        .title(Span::styled(field_title, Style::default().fg(theme.accent)));
+
+    let input = match step {
+        0 => Paragraph::new(&state.ui_state.input_buffer.text),
+        1 => Paragraph::new(state.ui_state.input_buffer.display()),
+        2 => Paragraph::new(state.ui_state.input_buffer.display()),
+        _ => Paragraph::new(""),
+    }
+    .style(Style::default().fg(theme.fg))
+    .block(input_block);
 
     frame.render_widget(input, chunks[2]);
 
@@ -517,13 +513,11 @@ fn render_create_vault_form(
     frame.set_cursor_position((cursor_x, cursor_y));
 
     // Error message
-    if let Some(ref error) = error_message {
+    if let Some(error) = error_message {
         let error_text = Paragraph::new(Line::from(vec![
-            Span::styled(
-                format!("{} ", icons::ui::ERROR),
-                Style::default().fg(theme.error),
-            ),
-            Span::styled(error.clone(), Style::default().fg(theme.error)),
+            Span::styled(icons::ui::ERROR, Style::default().fg(theme.error)),
+            Span::raw(" "),
+            Span::styled(error, Style::default().fg(theme.error)),
         ]))
         .alignment(Alignment::Center);
 
@@ -684,11 +678,12 @@ fn render_loading_overlay(frame: &mut Frame, area: Rect, state: &AppState, theme
         Line::from(""),
         Line::from(vec![
             Span::styled(
-                format!("{} ", spinner),
+                spinner,
                 Style::default()
                     .fg(theme.accent)
                     .add_modifier(Modifier::BOLD),
             ),
+            Span::raw(" "),
             Span::styled(message, Style::default().fg(theme.fg)),
         ]),
     ];
