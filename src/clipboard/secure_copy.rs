@@ -3,6 +3,7 @@
 use crate::utils::error::{Error, Result};
 
 /// Clipboard manager with auto-clear functionality
+#[derive(Default)]
 pub struct ClipboardManager {
     // Will be implemented in Phase 7
 }
@@ -14,11 +15,6 @@ impl ClipboardManager {
     }
 }
 
-impl Default for ClipboardManager {
-    fn default() -> Self {
-        Self {}
-    }
-}
 
 /// Copy text to clipboard
 pub fn copy_to_clipboard(_text: &str) -> Result<()> {

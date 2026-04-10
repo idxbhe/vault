@@ -26,11 +26,10 @@ use super::state::{
 pub fn update(state: &mut AppState, message: Message) -> Effect {
     // Update last activity time for real user actions only.
     // Timer-driven tick must not reset idle timeout.
-    if !matches!(&message, Message::Tick | Message::Noop) {
-        if let Some(ref mut vs) = state.vault_state {
+    if !matches!(&message, Message::Tick | Message::Noop)
+        && let Some(ref mut vs) = state.vault_state {
             vs.touch();
         }
-    }
 
     match message {
         // === Navigation ===
@@ -125,7 +124,8 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
         }
 
         Message::CloseVault => {
-            let effect = if state.is_dirty() {
+
+            if state.is_dirty() {
                 // Prompt to save first
                 state.ui_state.floating_window = Some(FloatingWindow::ConfirmDelete {
                     item_id: Uuid::nil(),
@@ -134,8 +134,7 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
             } else {
                 transition_to_locked_state(state);
                 Effect::none()
-            };
-            effect
+            }
         }
 
         // === Login Flow ===
@@ -207,9 +206,7 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
             Effect::none()
         }
 
-        Message::LoginPrevStep => {
-            Effect::none()
-        }
+        Message::LoginPrevStep => Effect::none(),
 
         Message::CancelInput => {
             if state.screen == Screen::PasswordRecovery {
@@ -322,12 +319,11 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
 
         // === Item Operations ===
         Message::SelectItem(id) => {
-            if let Some(ref mut vs) = state.vault_state {
-                if vs.vault.get_item(id).is_some() {
+            if let Some(ref mut vs) = state.vault_state
+                && vs.vault.get_item(id).is_some() {
                     vs.selected_item_id = Some(id);
                     state.ui_state.detail_scroll_offset = 0;
                 }
-            }
             Effect::none()
         }
 
@@ -367,8 +363,8 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
         }
 
         Message::UpdateItem { id, updates } => {
-            if let Some(ref mut vs) = state.vault_state {
-                if let Some(item) = vs.vault.get_item(id) {
+            if let Some(ref mut vs) = state.vault_state
+                && let Some(item) = vs.vault.get_item(id) {
                     // Save undo entry before modifying
                     let undo_entry = UndoEntry {
                         description: format!("Edit {}", item.title),
@@ -384,7 +380,6 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
                     vs.push_undo(undo_entry);
                     vs.mark_dirty();
                 }
-            }
             Effect::none()
         }
 
@@ -397,8 +392,8 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
         Message::ConfirmDeleteItem(id) => {
             state.ui_state.close_floating_window();
 
-            if let Some(ref mut vs) = state.vault_state {
-                if let Some(item) = vs.vault.get_item(id) {
+            if let Some(ref mut vs) = state.vault_state
+                && let Some(item) = vs.vault.get_item(id) {
                     // Save undo entry
                     let undo_entry = UndoEntry {
                         description: format!("Delete {}", item.title),
@@ -415,24 +410,22 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
                         vs.selected_item_id = vs.vault.items.first().map(|i| i.id);
                     }
                 }
-            }
             Effect::none()
         }
 
         Message::ToggleFavorite(id) => {
-            if let Some(ref mut vs) = state.vault_state {
-                if let Some(item) = vs.vault.get_item_mut(id) {
+            if let Some(ref mut vs) = state.vault_state
+                && let Some(item) = vs.vault.get_item_mut(id) {
                     item.favorite = !item.favorite;
                     item.touch();
                     vs.mark_dirty();
                 }
-            }
             Effect::none()
         }
 
         Message::DuplicateItem(id) => {
-            if let Some(ref mut vs) = state.vault_state {
-                if let Some(item) = vs.vault.get_item(id) {
+            if let Some(ref mut vs) = state.vault_state
+                && let Some(item) = vs.vault.get_item(id) {
                     let mut new_item = item.clone();
                     new_item.id = Uuid::new_v4();
                     new_item.title = format!("{} (Copy)", item.title);
@@ -441,14 +434,13 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
                     vs.selected_item_id = Some(new_id);
                     vs.mark_dirty();
                 }
-            }
             Effect::none()
         }
 
         // === History ===
         Message::Undo => {
-            if let Some(ref mut vs) = state.vault_state {
-                if let Some(entry) = vs.undo_stack.pop() {
+            if let Some(ref mut vs) = state.vault_state
+                && let Some(entry) = vs.undo_stack.pop() {
                     // Save current state to redo stack
                     if let Some(current) = vs.vault.get_item(entry.item_id) {
                         let redo_entry = UndoEntry {
@@ -470,13 +462,12 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
                     vs.mark_dirty();
                     state.ui_state.notify("Undone", NotificationLevel::Info);
                 }
-            }
             Effect::none()
         }
 
         Message::Redo => {
-            if let Some(ref mut vs) = state.vault_state {
-                if let Some(entry) = vs.redo_stack.pop() {
+            if let Some(ref mut vs) = state.vault_state
+                && let Some(entry) = vs.redo_stack.pop() {
                     // Save current state to undo stack
                     if let Some(current) = vs.vault.get_item(entry.item_id) {
                         let undo_entry = UndoEntry {
@@ -495,7 +486,6 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
                     vs.mark_dirty();
                     state.ui_state.notify("Redone", NotificationLevel::Info);
                 }
-            }
             Effect::none()
         }
 
@@ -529,11 +519,9 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
             if let Some(FloatingWindow::Search {
                 state: search_state,
             }) = &mut state.ui_state.floating_window
-            {
-                if let Some(ref vs) = state.vault_state {
+                && let Some(ref vs) = state.vault_state {
                     search_state.update_results(&vs.vault.items);
                 }
-            }
             Effect::none()
         }
 
@@ -628,8 +616,8 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
         }
 
         Message::CopyCurrentItem => {
-            if let Some(item) = state.selected_item() {
-                if let Some(content) = item.get_copyable_content() {
+            if let Some(item) = state.selected_item()
+                && let Some(content) = item.get_copyable_content() {
                     return update(
                         state,
                         Message::CopyToClipboard {
@@ -638,7 +626,6 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
                         },
                     );
                 }
-            }
             Effect::none()
         }
 
@@ -756,7 +743,14 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
         }
 
         Message::InputLeft => {
-            if state.screen == Screen::Login && state.login_screen.creating_vault {
+            if state.screen == Screen::Login && state.login_screen.creating_vault && state.login_screen.create_vault_form.focused_field == crate::ui::screens::login::CreateVaultField::EncryptionMethod {
+                let methods = crate::crypto::EncryptionMethod::all();
+                let current = state.login_screen.create_vault_form.encryption_method;
+                if let Some(idx) = methods.iter().position(|&m| m == current) {
+                    let next_idx = if idx == 0 { methods.len() - 1 } else { idx - 1 };
+                    state.login_screen.create_vault_form.encryption_method = methods[next_idx];
+                }
+            } else if state.screen == Screen::Login && state.login_screen.creating_vault {
                 if let Some(buf) = state.login_screen.create_vault_form.active_input_mut() {
                     buf.move_left();
                 }
@@ -780,7 +774,14 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
         }
 
         Message::InputRight => {
-            if state.screen == Screen::Login && state.login_screen.creating_vault {
+            if state.screen == Screen::Login && state.login_screen.creating_vault && state.login_screen.create_vault_form.focused_field == crate::ui::screens::login::CreateVaultField::EncryptionMethod {
+                let methods = crate::crypto::EncryptionMethod::all();
+                let current = state.login_screen.create_vault_form.encryption_method;
+                if let Some(idx) = methods.iter().position(|&m| m == current) {
+                    let next_idx = (idx + 1) % methods.len();
+                    state.login_screen.create_vault_form.encryption_method = methods[next_idx];
+                }
+            } else if state.screen == Screen::Login && state.login_screen.creating_vault {
                 if let Some(buf) = state.login_screen.create_vault_form.active_input_mut() {
                     buf.move_right();
                 }
@@ -828,8 +829,63 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
             }
 
             if state.screen == Screen::Login && state.login_screen.creating_vault {
-                if state.login_screen.create_vault_form.focused_field == crate::ui::screens::login::CreateVaultField::CreateButton {
+                let field = state.login_screen.create_vault_form.focused_field;
+                if field == crate::ui::screens::login::CreateVaultField::CreateButton {
                     return handle_create_vault_submit(state);
+                } else if field == crate::ui::screens::login::CreateVaultField::NextButton {
+                    let form = &mut state.login_screen.create_vault_form;
+                    if form.step == crate::ui::screens::login::CreateVaultStep::Step1 {
+                        let vault_name = form.name.text.trim().to_string();
+                        if vault_name.is_empty() {
+                            state.login_screen.error_message =
+                                Some("Vault name cannot be empty".to_string());
+                            return Effect::none();
+                        }
+                        form.step = crate::ui::screens::login::CreateVaultStep::Step2;
+                        form.focused_field = crate::ui::screens::login::CreateVaultField::Password;
+                        state.login_screen.error_message = None;
+                        return Effect::none();
+                    } else if form.step == crate::ui::screens::login::CreateVaultStep::Step2 {
+                        let password = form.password.text.clone();
+                        if password.len() < 4 {
+                            state.login_screen.error_message =
+                                Some("Password must be at least 4 characters".to_string());
+                            return Effect::none();
+                        }
+                        let confirm = form.confirm_password.text.clone();
+                        if password != confirm {
+                            state.login_screen.error_message =
+                                Some("Passwords do not match".to_string());
+                            return Effect::none();
+                        }
+                        let use_keyfile_str = form.use_keyfile.text.clone();
+                        let use_keyfile = use_keyfile_str.trim().eq_ignore_ascii_case("y")
+                            || use_keyfile_str.trim().eq_ignore_ascii_case("yes");
+                        let keyfile_path = form.keyfile_path.text.trim().to_string();
+                        if use_keyfile && keyfile_path.is_empty() {
+                            state.login_screen.error_message =
+                                Some("Keyfile path cannot be empty if using keyfile".to_string());
+                            return Effect::none();
+                        }
+                        form.step = crate::ui::screens::login::CreateVaultStep::Step3;
+                        form.focused_field =
+                            crate::ui::screens::login::CreateVaultField::RecoveryQuestionsCount;
+                        state.login_screen.error_message = None;
+                        return Effect::none();
+                    }
+                } else if field == crate::ui::screens::login::CreateVaultField::BackButton {
+                    let form = &mut state.login_screen.create_vault_form;
+                    if form.step == crate::ui::screens::login::CreateVaultStep::Step2 {
+                        form.step = crate::ui::screens::login::CreateVaultStep::Step1;
+                        form.focused_field = crate::ui::screens::login::CreateVaultField::Name;
+                        state.login_screen.error_message = None;
+                        return Effect::none();
+                    } else if form.step == crate::ui::screens::login::CreateVaultStep::Step3 {
+                        form.step = crate::ui::screens::login::CreateVaultStep::Step2;
+                        form.focused_field = crate::ui::screens::login::CreateVaultField::Password;
+                        state.login_screen.error_message = None;
+                        return Effect::none();
+                    }
                 } else {
                     return update(state, Message::FormNextField);
                 }
@@ -980,10 +1036,28 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
         // === Form ===
         Message::FormNextField => {
             if state.screen == Screen::Login && state.login_screen.creating_vault {
-                let q_count = state.login_screen.create_vault_form.recovery_questions_count.text.trim().parse::<usize>().unwrap_or(0);
-                let use_keyfile_text = state.login_screen.create_vault_form.use_keyfile.text.trim().to_lowercase();
+                let q_count = state
+                    .login_screen
+                    .create_vault_form
+                    .recovery_questions_count
+                    .text
+                    .trim()
+                    .parse::<usize>()
+                    .unwrap_or(0);
+                let use_keyfile_text = state
+                    .login_screen
+                    .create_vault_form
+                    .use_keyfile
+                    .text
+                    .trim()
+                    .to_lowercase();
                 let use_keyfile = use_keyfile_text == "yes" || use_keyfile_text == "y";
-                state.login_screen.create_vault_form.focused_field = state.login_screen.create_vault_form.focused_field.next(q_count, use_keyfile);
+                state.login_screen.create_vault_form.focused_field =
+                    state.login_screen.create_vault_form.focused_field.next(
+                        state.login_screen.create_vault_form.step,
+                        q_count,
+                        use_keyfile,
+                    );
             } else {
                 match &mut state.ui_state.floating_window {
                     Some(FloatingWindow::NewItem { form })
@@ -998,10 +1072,28 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
 
         Message::FormPrevField => {
             if state.screen == Screen::Login && state.login_screen.creating_vault {
-                let q_count = state.login_screen.create_vault_form.recovery_questions_count.text.trim().parse::<usize>().unwrap_or(0);
-                let use_keyfile_text = state.login_screen.create_vault_form.use_keyfile.text.trim().to_lowercase();
+                let q_count = state
+                    .login_screen
+                    .create_vault_form
+                    .recovery_questions_count
+                    .text
+                    .trim()
+                    .parse::<usize>()
+                    .unwrap_or(0);
+                let use_keyfile_text = state
+                    .login_screen
+                    .create_vault_form
+                    .use_keyfile
+                    .text
+                    .trim()
+                    .to_lowercase();
                 let use_keyfile = use_keyfile_text == "yes" || use_keyfile_text == "y";
-                state.login_screen.create_vault_form.focused_field = state.login_screen.create_vault_form.focused_field.prev(q_count, use_keyfile);
+                state.login_screen.create_vault_form.focused_field =
+                    state.login_screen.create_vault_form.focused_field.prev(
+                        state.login_screen.create_vault_form.step,
+                        q_count,
+                        use_keyfile,
+                    );
             } else {
                 match &mut state.ui_state.floating_window {
                     Some(FloatingWindow::NewItem { form })
@@ -1102,8 +1194,8 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
                     }
 
                     // Update the item from form data
-                    if let Some(ref mut vs) = state.vault_state {
-                        if let Some(item) = vs.vault.get_item(item_id) {
+                    if let Some(ref mut vs) = state.vault_state
+                        && let Some(item) = vs.vault.get_item(item_id) {
                             // Save undo entry
                             let undo_entry = UndoEntry {
                                 description: format!("Edit {}", item.title),
@@ -1142,7 +1234,6 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
                                 recovery_metadata: vs.recovery_metadata.clone(),
                             };
                         }
-                    }
                 }
                 other => {
                     state.ui_state.floating_window = other;
@@ -1213,8 +1304,8 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
         }
 
         Message::ToggleItemTag { item_id, tag_id } => {
-            if let Some(ref mut vs) = state.vault_state {
-                if let Some(item) = vs.vault.get_item_mut(item_id) {
+            if let Some(ref mut vs) = state.vault_state
+                && let Some(item) = vs.vault.get_item_mut(item_id) {
                     if item.tags.contains(&tag_id) {
                         item.tags.retain(|t| *t != tag_id);
                     } else {
@@ -1223,7 +1314,6 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
                     item.touch();
                     vs.mark_dirty();
                 }
-            }
             Effect::none()
         }
 
@@ -1312,14 +1402,13 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
             }
 
             // Check auto-lock
-            if state.config.auto_lock_enabled {
-                if let Some(ref vs) = state.vault_state {
+            if state.config.auto_lock_enabled
+                && let Some(ref vs) = state.vault_state {
                     let elapsed = vs.last_activity.elapsed();
                     if elapsed.as_secs() >= state.config.auto_lock_timeout_secs {
                         return update(state, Message::LockVault);
                     }
                 }
-            }
 
             Effect::none()
         }
@@ -1360,14 +1449,13 @@ fn select_adjacent_item(state: &mut AppState, delta: i32) {
         .iter()
         .filter(|item| {
             // Kind filter
-            if let Some(kind) = state.ui_state.filter.kind {
-                if item.kind != kind {
+            if let Some(kind) = state.ui_state.filter.kind
+                && item.kind != kind {
                     return false;
                 }
-            }
             // Tag filter
-            if !state.ui_state.filter.tags.is_empty() {
-                if !state
+            if !state.ui_state.filter.tags.is_empty()
+                && !state
                     .ui_state
                     .filter
                     .tags
@@ -1376,7 +1464,6 @@ fn select_adjacent_item(state: &mut AppState, delta: i32) {
                 {
                     return false;
                 }
-            }
             // Favorites filter
             if state.ui_state.filter.favorites_only && !item.favorite {
                 return false;
@@ -1401,11 +1488,10 @@ fn select_adjacent_item(state: &mut AppState, delta: i32) {
         current_idx.saturating_sub((-delta) as usize)
     };
 
-    if let Some(id) = items.get(new_idx) {
-        if let Some(ref mut vs) = state.vault_state {
+    if let Some(id) = items.get(new_idx)
+        && let Some(ref mut vs) = state.vault_state {
             vs.selected_item_id = Some(*id);
         }
-    }
 }
 
 /// Get items filtered by current filter state
@@ -1585,7 +1671,7 @@ fn handle_settings_security_action_submit(state: &mut AppState) -> Effect {
                 state.login_screen.error_message = None;
                 state.settings_state.security_action =
                     Some(SecurityActionState::ChangePassword(action));
-                return Effect::none();
+                Effect::none()
             }
             ChangePasswordStep::KeyfilePath => {
                 if input.trim().is_empty() {
@@ -1600,7 +1686,7 @@ fn handle_settings_security_action_submit(state: &mut AppState) -> Effect {
                 state.login_screen.error_message = None;
                 state.settings_state.security_action =
                     Some(SecurityActionState::ChangePassword(action));
-                return Effect::none();
+                Effect::none()
             }
             ChangePasswordStep::NewPassword => {
                 if input.len() < 4 {
@@ -1615,7 +1701,7 @@ fn handle_settings_security_action_submit(state: &mut AppState) -> Effect {
                 state.login_screen.error_message = None;
                 state.settings_state.security_action =
                     Some(SecurityActionState::ChangePassword(action));
-                return Effect::none();
+                Effect::none()
             }
             ChangePasswordStep::ConfirmPassword => {
                 let Some(current_password) = action.current_password.clone() else {
@@ -1680,7 +1766,7 @@ fn handle_settings_security_action_submit(state: &mut AppState) -> Effect {
                     NotificationLevel::Success,
                 );
 
-                return Effect::WriteVaultFile {
+                Effect::WriteVaultFile {
                     path: vault_state.vault_path.clone(),
                     vault: vault_state.vault.clone(),
                     key: vault_state.encryption_key,
@@ -1688,7 +1774,7 @@ fn handle_settings_security_action_submit(state: &mut AppState) -> Effect {
                     has_keyfile: vault_state.has_keyfile,
                     encryption_method: vault_state.encryption_method,
                     recovery_metadata: vault_state.recovery_metadata.clone(),
-                };
+                }
             }
         },
         SecurityActionState::ConfigureRecovery(mut action) => match action.step {
@@ -1712,7 +1798,7 @@ fn handle_settings_security_action_submit(state: &mut AppState) -> Effect {
                 state.login_screen.error_message = None;
                 state.settings_state.security_action =
                     Some(SecurityActionState::ConfigureRecovery(action));
-                return Effect::none();
+                Effect::none()
             }
             RecoverySetupStep::KeyfilePath => {
                 if input.trim().is_empty() {
@@ -1727,7 +1813,7 @@ fn handle_settings_security_action_submit(state: &mut AppState) -> Effect {
                 state.login_screen.error_message = None;
                 state.settings_state.security_action =
                     Some(SecurityActionState::ConfigureRecovery(action));
-                return Effect::none();
+                Effect::none()
             }
             RecoverySetupStep::QuestionCount => {
                 let Ok(question_count) = input
@@ -1797,7 +1883,7 @@ fn handle_settings_security_action_submit(state: &mut AppState) -> Effect {
                 state.login_screen.error_message = None;
                 state.settings_state.security_action =
                     Some(SecurityActionState::ConfigureRecovery(action));
-                return Effect::none();
+                Effect::none()
             }
             RecoverySetupStep::QuestionText => {
                 let question = input.trim();
@@ -1813,7 +1899,7 @@ fn handle_settings_security_action_submit(state: &mut AppState) -> Effect {
                 state.login_screen.error_message = None;
                 state.settings_state.security_action =
                     Some(SecurityActionState::ConfigureRecovery(action));
-                return Effect::none();
+                Effect::none()
             }
             RecoverySetupStep::AnswerText => {
                 if input.trim().is_empty() {
@@ -1888,7 +1974,7 @@ fn handle_settings_security_action_submit(state: &mut AppState) -> Effect {
                     .ui_state
                     .notify("Recovery questions saved", NotificationLevel::Success);
 
-                return Effect::WriteVaultFile {
+                Effect::WriteVaultFile {
                     path: vault_state.vault_path.clone(),
                     vault: vault_state.vault.clone(),
                     key: vault_state.encryption_key,
@@ -1896,12 +1982,11 @@ fn handle_settings_security_action_submit(state: &mut AppState) -> Effect {
                     has_keyfile: vault_state.has_keyfile,
                     encryption_method: vault_state.encryption_method,
                     recovery_metadata: vault_state.recovery_metadata.clone(),
-                };
+                }
             }
         },
     }
 }
-
 
 fn settings_option_count(_state: &AppState, setting_index: usize) -> usize {
     use crate::ui::screens::SettingKind;
@@ -2019,11 +2104,13 @@ fn handle_create_vault_submit(state: &mut AppState) -> Effect {
     }
 
     let use_keyfile_str = form.use_keyfile.text.clone();
-    let use_keyfile = use_keyfile_str.trim().eq_ignore_ascii_case("y") || use_keyfile_str.trim().eq_ignore_ascii_case("yes");
+    let use_keyfile = use_keyfile_str.trim().eq_ignore_ascii_case("y")
+        || use_keyfile_str.trim().eq_ignore_ascii_case("yes");
 
     let keyfile_path = form.keyfile_path.text.trim().to_string();
     if use_keyfile && keyfile_path.is_empty() {
-        state.login_screen.error_message = Some("Keyfile path cannot be empty if using keyfile".to_string());
+        state.login_screen.error_message =
+            Some("Keyfile path cannot be empty if using keyfile".to_string());
         return Effect::none();
     }
 
@@ -2041,7 +2128,8 @@ fn handle_create_vault_submit(state: &mut AppState) -> Effect {
         let q1 = form.question1.text.trim().to_string();
         let a1 = form.answer1.text.trim().to_string();
         if q1.is_empty() || a1.is_empty() {
-            state.login_screen.error_message = Some("Question 1 and its answer cannot be empty".to_string());
+            state.login_screen.error_message =
+                Some("Question 1 and its answer cannot be empty".to_string());
             return Effect::none();
         }
         draft_qs.push((q1, a1));
@@ -2051,7 +2139,8 @@ fn handle_create_vault_submit(state: &mut AppState) -> Effect {
         let q2 = form.question2.text.trim().to_string();
         let a2 = form.answer2.text.trim().to_string();
         if q2.is_empty() || a2.is_empty() {
-            state.login_screen.error_message = Some("Question 2 and its answer cannot be empty".to_string());
+            state.login_screen.error_message =
+                Some("Question 2 and its answer cannot be empty".to_string());
             return Effect::none();
         }
         draft_qs.push((q2, a2));
@@ -2061,7 +2150,8 @@ fn handle_create_vault_submit(state: &mut AppState) -> Effect {
         let q3 = form.question3.text.trim().to_string();
         let a3 = form.answer3.text.trim().to_string();
         if q3.is_empty() || a3.is_empty() {
-            state.login_screen.error_message = Some("Question 3 and its answer cannot be empty".to_string());
+            state.login_screen.error_message =
+                Some("Question 3 and its answer cannot be empty".to_string());
             return Effect::none();
         }
         draft_qs.push((q3, a3));
@@ -2085,7 +2175,7 @@ fn handle_create_vault_submit(state: &mut AppState) -> Effect {
 
     let secure_password = crate::crypto::SecureString::new(password);
     let mut vault = crate::domain::Vault::new(&vault_name);
-    let encryption_method = crate::crypto::EncryptionMethod::Aes256Gcm;
+    let encryption_method = form.encryption_method;
 
     let mut keyfile_data: Option<Vec<u8>> = None;
     if use_keyfile {
@@ -2115,12 +2205,7 @@ fn handle_create_vault_submit(state: &mut AppState) -> Effect {
     let recovery_metadata = if q_count > 0 {
         let question_answers = draft_qs
             .into_iter()
-            .map(|(q, a)| {
-                (
-                    q,
-                    crate::crypto::SecureString::new(a),
-                )
-            })
+            .map(|(q, a)| (q, crate::crypto::SecureString::new(a)))
             .collect::<Vec<_>>();
 
         match crate::domain::RecoveryMetadata::build(

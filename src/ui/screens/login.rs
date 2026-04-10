@@ -19,12 +19,21 @@ use crate::storage::VaultRegistryEntry;
 use crate::ui::theme::ThemePalette;
 use crate::utils::icons;
 
+/// Wizard step for creating a vault
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CreateVaultStep {
+    #[default]
+    Step1,
+    Step2,
+    Step3,
+}
 
 /// Form field index for the Create Vault form.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CreateVaultField {
     #[default]
     Name,
+    EncryptionMethod,
     Password,
     ConfirmPassword,
     UseKeyfile,
@@ -36,58 +45,115 @@ pub enum CreateVaultField {
     RecoveryAnswer2,
     RecoveryQuestion3,
     RecoveryAnswer3,
+    NextButton,
+    BackButton,
     CreateButton,
 }
 
 impl CreateVaultField {
-    pub fn next(self, q_count: usize, use_keyfile: bool) -> Self {
-        match self {
-            Self::Name => Self::Password,
-            Self::Password => Self::ConfirmPassword,
-            Self::ConfirmPassword => Self::UseKeyfile,
-            Self::UseKeyfile => {
-                if use_keyfile { Self::KeyfilePath } else { Self::RecoveryQuestionsCount }
+    pub fn next(self, step: CreateVaultStep, q_count: usize, use_keyfile: bool) -> Self {
+        match step {
+            CreateVaultStep::Step1 => match self {
+                Self::Name => Self::EncryptionMethod,
+                Self::EncryptionMethod => Self::NextButton,
+                Self::NextButton => Self::BackButton,
+                Self::BackButton => Self::Name,
+                _ => Self::Name,
             },
-            Self::KeyfilePath => Self::RecoveryQuestionsCount,
-            Self::RecoveryQuestionsCount => {
-                if q_count > 0 { Self::RecoveryQuestion1 } else { Self::CreateButton }
-            }
-            Self::RecoveryQuestion1 => Self::RecoveryAnswer1,
-            Self::RecoveryAnswer1 => {
-                if q_count > 1 { Self::RecoveryQuestion2 } else { Self::CreateButton }
-            }
-            Self::RecoveryQuestion2 => Self::RecoveryAnswer2,
-            Self::RecoveryAnswer2 => {
-                if q_count > 2 { Self::RecoveryQuestion3 } else { Self::CreateButton }
-            }
-            Self::RecoveryQuestion3 => Self::RecoveryAnswer3,
-            Self::RecoveryAnswer3 => Self::CreateButton,
-            Self::CreateButton => Self::Name,
+            CreateVaultStep::Step2 => match self {
+                Self::Password => Self::ConfirmPassword,
+                Self::ConfirmPassword => Self::UseKeyfile,
+                Self::UseKeyfile => {
+                    if use_keyfile {
+                        Self::KeyfilePath
+                    } else {
+                        Self::NextButton
+                    }
+                }
+                Self::KeyfilePath => Self::NextButton,
+                Self::NextButton => Self::BackButton,
+                Self::BackButton => Self::Password,
+                _ => Self::Password,
+            },
+            CreateVaultStep::Step3 => match self {
+                Self::RecoveryQuestionsCount => {
+                    if q_count > 0 {
+                        Self::RecoveryQuestion1
+                    } else {
+                        Self::CreateButton
+                    }
+                }
+                Self::RecoveryQuestion1 => Self::RecoveryAnswer1,
+                Self::RecoveryAnswer1 => {
+                    if q_count > 1 {
+                        Self::RecoveryQuestion2
+                    } else {
+                        Self::CreateButton
+                    }
+                }
+                Self::RecoveryQuestion2 => Self::RecoveryAnswer2,
+                Self::RecoveryAnswer2 => {
+                    if q_count > 2 {
+                        Self::RecoveryQuestion3
+                    } else {
+                        Self::CreateButton
+                    }
+                }
+                Self::RecoveryQuestion3 => Self::RecoveryAnswer3,
+                Self::RecoveryAnswer3 => Self::CreateButton,
+                Self::CreateButton => Self::BackButton,
+                Self::BackButton => Self::RecoveryQuestionsCount,
+                _ => Self::RecoveryQuestionsCount,
+            },
         }
     }
 
-    pub fn prev(self, q_count: usize, use_keyfile: bool) -> Self {
-        match self {
-            Self::Name => Self::CreateButton,
-            Self::Password => Self::Name,
-            Self::ConfirmPassword => Self::Password,
-            Self::UseKeyfile => Self::ConfirmPassword,
-            Self::KeyfilePath => Self::UseKeyfile,
-            Self::RecoveryQuestionsCount => {
-                if use_keyfile { Self::KeyfilePath } else { Self::UseKeyfile }
+    pub fn prev(self, step: CreateVaultStep, q_count: usize, use_keyfile: bool) -> Self {
+        match step {
+            CreateVaultStep::Step1 => match self {
+                Self::Name => Self::BackButton,
+                Self::EncryptionMethod => Self::Name,
+                Self::NextButton => Self::EncryptionMethod,
+                Self::BackButton => Self::NextButton,
+                _ => Self::Name,
             },
-            Self::RecoveryQuestion1 => Self::RecoveryQuestionsCount,
-            Self::RecoveryAnswer1 => Self::RecoveryQuestion1,
-            Self::RecoveryQuestion2 => Self::RecoveryAnswer1,
-            Self::RecoveryAnswer2 => Self::RecoveryQuestion2,
-            Self::RecoveryQuestion3 => Self::RecoveryAnswer2,
-            Self::RecoveryAnswer3 => Self::RecoveryQuestion3,
-            Self::CreateButton => {
-                if q_count > 2 { Self::RecoveryAnswer3 }
-                else if q_count > 1 { Self::RecoveryAnswer2 }
-                else if q_count > 0 { Self::RecoveryAnswer1 }
-                else { Self::RecoveryQuestionsCount }
-            }
+            CreateVaultStep::Step2 => match self {
+                Self::Password => Self::BackButton,
+                Self::ConfirmPassword => Self::Password,
+                Self::UseKeyfile => Self::ConfirmPassword,
+                Self::KeyfilePath => Self::UseKeyfile,
+                Self::NextButton => {
+                    if use_keyfile {
+                        Self::KeyfilePath
+                    } else {
+                        Self::UseKeyfile
+                    }
+                }
+                Self::BackButton => Self::NextButton,
+                _ => Self::Password,
+            },
+            CreateVaultStep::Step3 => match self {
+                Self::RecoveryQuestionsCount => Self::BackButton,
+                Self::RecoveryQuestion1 => Self::RecoveryQuestionsCount,
+                Self::RecoveryAnswer1 => Self::RecoveryQuestion1,
+                Self::RecoveryQuestion2 => Self::RecoveryAnswer1,
+                Self::RecoveryAnswer2 => Self::RecoveryQuestion2,
+                Self::RecoveryQuestion3 => Self::RecoveryAnswer2,
+                Self::RecoveryAnswer3 => Self::RecoveryQuestion3,
+                Self::CreateButton => {
+                    if q_count > 2 {
+                        Self::RecoveryAnswer3
+                    } else if q_count > 1 {
+                        Self::RecoveryAnswer2
+                    } else if q_count > 0 {
+                        Self::RecoveryAnswer1
+                    } else {
+                        Self::RecoveryQuestionsCount
+                    }
+                }
+                Self::BackButton => Self::CreateButton,
+                _ => Self::RecoveryQuestionsCount,
+            },
         }
     }
 }
@@ -95,7 +161,9 @@ impl CreateVaultField {
 /// State for the create vault form
 #[derive(Debug, Clone, Default)]
 pub struct CreateVaultFormState {
+    pub step: CreateVaultStep,
     pub focused_field: CreateVaultField,
+    pub encryption_method: crate::crypto::EncryptionMethod,
     pub name: crate::app::state::InputBuffer,
     pub password: crate::app::state::InputBuffer,
     pub confirm_password: crate::app::state::InputBuffer,
@@ -135,7 +203,7 @@ impl CreateVaultFormState {
             CreateVaultField::RecoveryAnswer2 => Some(&mut self.answer2),
             CreateVaultField::RecoveryQuestion3 => Some(&mut self.question3),
             CreateVaultField::RecoveryAnswer3 => Some(&mut self.answer3),
-            CreateVaultField::CreateButton => None,
+            _ => None,
         }
     }
 
@@ -153,7 +221,7 @@ impl CreateVaultFormState {
             CreateVaultField::RecoveryAnswer2 => Some(&self.answer2),
             CreateVaultField::RecoveryQuestion3 => Some(&self.question3),
             CreateVaultField::RecoveryAnswer3 => Some(&self.answer3),
-            CreateVaultField::CreateButton => None,
+            _ => None,
         }
     }
 }
@@ -749,40 +817,98 @@ fn render_create_vault_form(
     let error_message = state.login_screen.error_message.clone();
     let form = &state.login_screen.create_vault_form;
 
-    // Collect ordered fields to display
-    let mut fields_to_show = vec![
-        ("Vault Name", &form.name, CreateVaultField::Name),
-        ("Password", &form.password, CreateVaultField::Password),
-        ("Confirm Password", &form.confirm_password, CreateVaultField::ConfirmPassword),
-        ("Use Keyfile (yes/no)", &form.use_keyfile, CreateVaultField::UseKeyfile),
-    ];
+    let mut fields_to_show = Vec::new();
 
-    let use_keyfile_text = form.use_keyfile.text.trim().to_lowercase();
-    if use_keyfile_text == "yes" || use_keyfile_text == "y" {
-        fields_to_show.push(("Keyfile Path", &form.keyfile_path, CreateVaultField::KeyfilePath));
-    }
+    // Determine what to show based on current step
+    match form.step {
+        CreateVaultStep::Step1 => {
+            fields_to_show.push(("Vault Name", Some(&form.name), CreateVaultField::Name));
+            // For encryption method we'll handle rendering slightly differently, but add it to fields
+            fields_to_show.push((
+                "Encryption Method",
+                None,
+                CreateVaultField::EncryptionMethod,
+            ));
+        }
+        CreateVaultStep::Step2 => {
+            fields_to_show.push(("Password", Some(&form.password), CreateVaultField::Password));
+            fields_to_show.push((
+                "Confirm Password",
+                Some(&form.confirm_password),
+                CreateVaultField::ConfirmPassword,
+            ));
+            fields_to_show.push((
+                "Use Keyfile (y/n)",
+                Some(&form.use_keyfile),
+                CreateVaultField::UseKeyfile,
+            ));
 
-    fields_to_show.push(("Number of Recovery Questions (0-3)", &form.recovery_questions_count, CreateVaultField::RecoveryQuestionsCount));
+            let use_keyfile_text = form.use_keyfile.text.trim().to_lowercase();
+            if use_keyfile_text == "yes" || use_keyfile_text == "y" {
+                fields_to_show.push((
+                    "Keyfile Path",
+                    Some(&form.keyfile_path),
+                    CreateVaultField::KeyfilePath,
+                ));
+            }
+        }
+        CreateVaultStep::Step3 => {
+            fields_to_show.push((
+                "Number of Recovery Questions (0-3)",
+                Some(&form.recovery_questions_count),
+                CreateVaultField::RecoveryQuestionsCount,
+            ));
 
-    let q_count = form.recovery_questions_count.text.trim().parse::<usize>().unwrap_or(0);
+            let q_count = form
+                .recovery_questions_count
+                .text
+                .trim()
+                .parse::<usize>()
+                .unwrap_or(0);
 
-    if q_count > 0 {
-        fields_to_show.push(("Recovery Question 1", &form.question1, CreateVaultField::RecoveryQuestion1));
-        fields_to_show.push(("Recovery Answer 1", &form.answer1, CreateVaultField::RecoveryAnswer1));
-    }
-    if q_count > 1 {
-        fields_to_show.push(("Recovery Question 2", &form.question2, CreateVaultField::RecoveryQuestion2));
-        fields_to_show.push(("Recovery Answer 2", &form.answer2, CreateVaultField::RecoveryAnswer2));
-    }
-    if q_count > 2 {
-        fields_to_show.push(("Recovery Question 3", &form.question3, CreateVaultField::RecoveryQuestion3));
-        fields_to_show.push(("Recovery Answer 3", &form.answer3, CreateVaultField::RecoveryAnswer3));
+            if q_count > 0 {
+                fields_to_show.push((
+                    "Recovery Question 1",
+                    Some(&form.question1),
+                    CreateVaultField::RecoveryQuestion1,
+                ));
+                fields_to_show.push((
+                    "Recovery Answer 1",
+                    Some(&form.answer1),
+                    CreateVaultField::RecoveryAnswer1,
+                ));
+            }
+            if q_count > 1 {
+                fields_to_show.push((
+                    "Recovery Question 2",
+                    Some(&form.question2),
+                    CreateVaultField::RecoveryQuestion2,
+                ));
+                fields_to_show.push((
+                    "Recovery Answer 2",
+                    Some(&form.answer2),
+                    CreateVaultField::RecoveryAnswer2,
+                ));
+            }
+            if q_count > 2 {
+                fields_to_show.push((
+                    "Recovery Question 3",
+                    Some(&form.question3),
+                    CreateVaultField::RecoveryQuestion3,
+                ));
+                fields_to_show.push((
+                    "Recovery Answer 3",
+                    Some(&form.answer3),
+                    CreateVaultField::RecoveryAnswer3,
+                ));
+            }
+        }
     }
 
     // Calculate form dimensions
     let form_width = area.width.min(70);
-    // Add space for the Create button at the bottom
-    let form_height = (fields_to_show.len() as u16 * 3 + 3 + 6).min(area.height - 2);
+    // Base height for fields + padding + navigation row + error row
+    let form_height = (fields_to_show.len() as u16 * 3 + 6).min(area.height - 2);
     let x = (area.width.saturating_sub(form_width)) / 2;
     let y = (area.height.saturating_sub(form_height)) / 2;
 
@@ -791,7 +917,13 @@ fn render_create_vault_form(
     // Clear background
     frame.render_widget(Clear, form_area);
 
-    let title = format!(" {} Create Vault ", icons::ui::VAULT);
+    let step_str = match form.step {
+        CreateVaultStep::Step1 => "Step 1/3",
+        CreateVaultStep::Step2 => "Step 2/3",
+        CreateVaultStep::Step3 => "Step 3/3",
+    };
+
+    let title = format!(" {} Create Vault [{}] ", icons::ui::VAULT, step_str);
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(ratatui::widgets::BorderType::Rounded)
@@ -811,8 +943,10 @@ fn render_create_vault_form(
     for _ in 0..fields_to_show.len() {
         constraints.push(Constraint::Length(3));
     }
-    constraints.push(Constraint::Length(3)); // For the Create Button
-    constraints.push(Constraint::Length(2)); // Padding/Error space
+    // For the Next/Back/Create Buttons
+    constraints.push(Constraint::Length(1));
+    // Padding/Error space
+    constraints.push(Constraint::Length(2));
     constraints.push(Constraint::Min(0));
 
     let layout = Layout::default()
@@ -820,95 +954,191 @@ fn render_create_vault_form(
         .constraints(constraints)
         .split(inner_area);
 
-    for (i, (label, buffer, field_enum)) in fields_to_show.iter().enumerate() {
+    for (i, (label, buffer_opt, field_enum)) in fields_to_show.iter().enumerate() {
         let is_focused = form.focused_field == *field_enum;
         let border_style = if is_focused {
-            Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(theme.accent)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(theme.border)
         };
 
         let title_style = if is_focused {
-            Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(theme.accent)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(theme.fg_muted)
         };
 
         let input_block = Block::default()
             .borders(Borders::ALL)
-            .border_type(if is_focused { ratatui::widgets::BorderType::Double } else { ratatui::widgets::BorderType::Plain })
+            .border_type(if is_focused {
+                ratatui::widgets::BorderType::Double
+            } else {
+                ratatui::widgets::BorderType::Plain
+            })
             .border_style(border_style)
             .title(Span::styled(format!(" {} ", label), title_style));
 
-        let input_para = Paragraph::new(buffer.display())
-            .style(Style::default().fg(theme.fg))
-            .block(input_block.clone());
+        if let Some(buffer) = buffer_opt {
+            let input_para = Paragraph::new(buffer.display())
+                .style(Style::default().fg(theme.fg))
+                .block(input_block.clone());
+            frame.render_widget(input_para, layout[i]);
 
-        frame.render_widget(input_para, layout[i]);
+            if is_focused {
+                let cursor_x = layout[i].x + 1 + buffer.cursor as u16;
+                let cursor_y = layout[i].y + 1;
+                frame.set_cursor_position((cursor_x, cursor_y));
+            }
+        } else if *field_enum == CreateVaultField::EncryptionMethod {
+            let method_text = if is_focused {
+                format!("< {} >", form.encryption_method.display_name())
+            } else {
+                form.encryption_method.display_name().to_string()
+            };
 
-        // Register field region for mouse clicks
-        // We'll map the logical enum back to a usize for the router
+            let method_para = Paragraph::new(method_text)
+                .alignment(Alignment::Center)
+                .style(if is_focused {
+                    Style::default()
+                        .fg(theme.accent)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(theme.fg)
+                })
+                .block(input_block.clone());
+            frame.render_widget(method_para, layout[i]);
+        }
+
         let field_idx = match field_enum {
             CreateVaultField::Name => 0,
-            CreateVaultField::Password => 1,
-            CreateVaultField::ConfirmPassword => 2,
-            CreateVaultField::UseKeyfile => 3,
-            CreateVaultField::KeyfilePath => 4,
-            CreateVaultField::RecoveryQuestionsCount => 5,
-            CreateVaultField::RecoveryQuestion1 => 6,
-            CreateVaultField::RecoveryAnswer1 => 7,
-            CreateVaultField::RecoveryQuestion2 => 8,
-            CreateVaultField::RecoveryAnswer2 => 9,
-            CreateVaultField::RecoveryQuestion3 => 10,
-            CreateVaultField::RecoveryAnswer3 => 11,
-            CreateVaultField::CreateButton => 12,
+            CreateVaultField::EncryptionMethod => 1,
+            CreateVaultField::Password => 2,
+            CreateVaultField::ConfirmPassword => 3,
+            CreateVaultField::UseKeyfile => 4,
+            CreateVaultField::KeyfilePath => 5,
+            CreateVaultField::RecoveryQuestionsCount => 6,
+            CreateVaultField::RecoveryQuestion1 => 7,
+            CreateVaultField::RecoveryAnswer1 => 8,
+            CreateVaultField::RecoveryQuestion2 => 9,
+            CreateVaultField::RecoveryAnswer2 => 10,
+            CreateVaultField::RecoveryQuestion3 => 11,
+            CreateVaultField::RecoveryAnswer3 => 12,
+            _ => 0,
         };
         state.ui_state.layout_regions.register_clickable(
             crate::input::mouse::ClickRegion::new(
-                layout[i].x, layout[i].y, layout[i].width, layout[i].height
+                layout[i].x,
+                layout[i].y,
+                layout[i].width,
+                layout[i].height,
             ),
             crate::input::mouse::ClickableElement::FormField(field_idx),
         );
-
-        if is_focused {
-            let cursor_x = layout[i].x + 1 + buffer.cursor as u16;
-            let cursor_y = layout[i].y + 1;
-            frame.set_cursor_position((cursor_x, cursor_y));
-        }
     }
 
-    // Render Create Button
-    let btn_idx = fields_to_show.len();
-    let btn_focused = form.focused_field == CreateVaultField::CreateButton;
+    let nav_row_idx = fields_to_show.len();
+
+    // Render navigation buttons (Back / Next / Create)
+    let nav_layout = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(layout[nav_row_idx]);
+
+    // Back Button (hidden on Step 1)
+    if form.step != CreateVaultStep::Step1 {
+        let btn_focused = form.focused_field == CreateVaultField::BackButton;
+        let btn_style = if btn_focused {
+            Style::default()
+                .bg(theme.accent)
+                .fg(theme.bg)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().bg(theme.selection_bg).fg(theme.fg)
+        };
+
+        let back_text = if btn_focused { " ◂ Back " } else { " Back " };
+        let back_para = Paragraph::new(back_text)
+            .alignment(Alignment::Center)
+            .style(btn_style);
+
+        // Make button fixed width
+        let btn_width = 16;
+        let btn_x = nav_layout[0].x + nav_layout[0].width.saturating_sub(btn_width); // Right align in left half
+        let btn_rect = Rect::new(btn_x.saturating_sub(1), nav_layout[0].y, btn_width, 1);
+
+        frame.render_widget(back_para, btn_rect);
+        state.ui_state.layout_regions.register_clickable(
+            crate::input::mouse::ClickRegion::new(
+                btn_rect.x,
+                btn_rect.y,
+                btn_rect.width,
+                btn_rect.height,
+            ),
+            crate::input::mouse::ClickableElement::FormField(14), // BackButton idx
+        );
+    }
+
+    // Next / Create Button
+    let is_last_step = form.step == CreateVaultStep::Step3;
+    let target_field = if is_last_step {
+        CreateVaultField::CreateButton
+    } else {
+        CreateVaultField::NextButton
+    };
+    let btn_focused = form.focused_field == target_field;
     let btn_style = if btn_focused {
-        Style::default().bg(theme.accent).fg(theme.bg).add_modifier(Modifier::BOLD)
+        Style::default()
+            .bg(theme.accent)
+            .fg(theme.bg)
+            .add_modifier(Modifier::BOLD)
     } else {
         Style::default().bg(theme.selection_bg).fg(theme.fg)
     };
 
-    // Center the button in its row
-    let btn_width = 20;
-    let btn_x = layout[btn_idx].x + (layout[btn_idx].width.saturating_sub(btn_width)) / 2;
-    let btn_rect = Rect::new(btn_x, layout[btn_idx].y + 1, btn_width, 1);
+    let btn_text = if is_last_step {
+        if btn_focused {
+            " Create ▸ "
+        } else {
+            " Create "
+        }
+    } else {
+        if btn_focused { " Next ▸ " } else { " Next " }
+    };
 
-    let btn_para = Paragraph::new(if btn_focused { " ▸ Create " } else { " Create " })
+    let btn_para = Paragraph::new(btn_text)
         .alignment(Alignment::Center)
         .style(btn_style);
 
+    let btn_width = 16;
+    let btn_x = nav_layout[1].x + 1; // Left align in right half
+    let btn_rect = Rect::new(btn_x, nav_layout[1].y, btn_width, 1);
+
     frame.render_widget(btn_para, btn_rect);
     state.ui_state.layout_regions.register_clickable(
-        crate::input::mouse::ClickRegion::new(btn_rect.x, btn_rect.y, btn_rect.width, btn_rect.height),
-        crate::input::mouse::ClickableElement::Button("save-vault".to_string())
+        crate::input::mouse::ClickRegion::new(
+            btn_rect.x,
+            btn_rect.y,
+            btn_rect.width,
+            btn_rect.height,
+        ),
+        crate::input::mouse::ClickableElement::FormField(if is_last_step { 15 } else { 13 }),
     );
 
     if let Some(ref error) = error_message {
-        let error_rect = layout[btn_idx + 1];
+        let error_rect = layout[nav_row_idx + 1];
         let error_text = ratatui::widgets::Paragraph::new(ratatui::text::Line::from(vec![
             ratatui::text::Span::styled(
                 format!("{} ", icons::ui::ERROR),
                 ratatui::style::Style::default().fg(theme.error),
             ),
-            ratatui::text::Span::styled(error.clone(), ratatui::style::Style::default().fg(theme.error)),
+            ratatui::text::Span::styled(
+                error.clone(),
+                ratatui::style::Style::default().fg(theme.error),
+            ),
         ]))
         .alignment(ratatui::layout::Alignment::Center);
         frame.render_widget(error_text, error_rect);

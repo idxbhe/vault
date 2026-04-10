@@ -106,7 +106,7 @@ pub fn is_valid_keyfile_path<P: AsRef<Path>>(path: P) -> bool {
     if let Ok(metadata) = fs::metadata(path) {
         let size = metadata.len();
         // Between 8 bytes and 10 MB
-        size >= 8 && size <= 10 * 1024 * 1024
+        (8..=10 * 1024 * 1024).contains(&size)
     } else {
         false
     }

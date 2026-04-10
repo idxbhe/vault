@@ -41,7 +41,7 @@ impl ItemListState {
                     if item.kind != kind {
                         return false;
                     }
-                }
+                    }
                 if !filter.tags.is_empty() && !filter.tags.iter().any(|t| item.tags.contains(t)) {
                     return false;
                 }

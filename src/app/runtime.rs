@@ -164,20 +164,18 @@ impl Runtime {
         let now = Instant::now();
 
         // Check clipboard clear
-        if let Some(clear_at) = self.clipboard_clear_at {
-            if now >= clear_at {
+        if let Some(clear_at) = self.clipboard_clear_at
+            && now >= clear_at {
                 self.clipboard_clear_at = None;
                 let _ = self.message_tx.send(Message::ClearClipboard);
             }
-        }
 
         // Check auto-lock
-        if let Some(lock_at) = self.auto_lock_at {
-            if now >= lock_at {
+        if let Some(lock_at) = self.auto_lock_at
+            && now >= lock_at {
                 self.auto_lock_at = None;
                 let _ = self.message_tx.send(Message::LockVault);
             }
-        }
     }
 
     /// Get time until next scheduled event (for sleep duration)
@@ -185,17 +183,15 @@ impl Runtime {
         let now = Instant::now();
         let mut min_delay = Duration::from_millis(100); // Default tick rate
 
-        if let Some(clear_at) = self.clipboard_clear_at {
-            if clear_at > now {
+        if let Some(clear_at) = self.clipboard_clear_at
+            && clear_at > now {
                 min_delay = min_delay.min(clear_at - now);
             }
-        }
 
-        if let Some(lock_at) = self.auto_lock_at {
-            if lock_at > now {
+        if let Some(lock_at) = self.auto_lock_at
+            && lock_at > now {
                 min_delay = min_delay.min(lock_at - now);
             }
-        }
 
         min_delay
     }

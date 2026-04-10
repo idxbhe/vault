@@ -11,8 +11,10 @@ use crate::domain::Vault;
 
 /// Side effects that need to be executed
 #[derive(Debug)]
+#[derive(Default)]
 pub enum Effect {
     /// No effect
+    #[default]
     None,
     /// Multiple effects to execute
     Batch(Vec<Effect>),
@@ -104,11 +106,6 @@ impl Effect {
     }
 }
 
-impl Default for Effect {
-    fn default() -> Self {
-        Self::None
-    }
-}
 
 /// Result of executing an effect
 #[derive(Debug)]
