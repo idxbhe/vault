@@ -176,6 +176,9 @@ pub struct CreateVaultFormState {
     pub answer2: crate::app::state::InputBuffer,
     pub question3: crate::app::state::InputBuffer,
     pub answer3: crate::app::state::InputBuffer,
+
+    /// Offset to track scrolling in long steps (e.g. Step 3)
+    pub scroll_offset: u16,
 }
 
 impl CreateVaultFormState {
@@ -815,7 +818,7 @@ fn render_create_vault_form(
     theme: &ThemePalette,
 ) {
     let error_message = state.login_screen.error_message.clone();
-    let form = &state.login_screen.create_vault_form;
+    let form = &mut state.login_screen.create_vault_form;
 
     let mut fields_to_show = Vec::new();
 
@@ -838,7 +841,7 @@ fn render_create_vault_form(
                 CreateVaultField::ConfirmPassword,
             ));
             fields_to_show.push((
-                "Use Keyfile (y/n)",
+                "Use Keyfile (y/n) - A keyfile adds an extra layer of security.",
                 Some(&form.use_keyfile),
                 CreateVaultField::UseKeyfile,
             ));
@@ -854,7 +857,7 @@ fn render_create_vault_form(
         }
         CreateVaultStep::Step3 => {
             fields_to_show.push((
-                "Number of Recovery Questions (0-3)",
+                "Number of Recovery Questions (0-3) - Provide a fallback method to recover access.",
                 Some(&form.recovery_questions_count),
                 CreateVaultField::RecoveryQuestionsCount,
             ));
@@ -905,14 +908,50 @@ fn render_create_vault_form(
         }
     }
 
+    // Update scroll offset to keep focused field in view
+    let focused_idx = fields_to_show
+        .iter()
+        .position(|(_, _, field_enum)| form.focused_field == *field_enum);
+
+    // Total fields + nav + error padding
+    let total_rows = fields_to_show.len() + 2;
+
     // Calculate form dimensions
     let form_width = area.width.min(70);
     // Base height for fields + padding + navigation row + error row
-    let form_height = (fields_to_show.len() as u16 * 3 + 6).min(area.height - 2);
+    let max_height = area.height.saturating_sub(2);
+    let form_height = ((total_rows as u16) * 3).min(max_height);
     let x = (area.width.saturating_sub(form_width)) / 2;
     let y = (area.height.saturating_sub(form_height)) / 2;
 
     let form_area = Rect::new(x, y, form_width, form_height);
+
+    // Calculate visible rows
+    let inner_height = form_area.height.saturating_sub(2); // subtract borders
+    let max_visible_rows = (inner_height / 3) as usize;
+
+    // Update scroll offset if needed
+    if let Some(idx) = focused_idx {
+        if idx < form.scroll_offset as usize {
+            form.scroll_offset = idx as u16;
+        } else if idx >= (form.scroll_offset as usize + max_visible_rows.saturating_sub(1)) {
+            // we use max_visible_rows - 1 because we want to leave room for the navigation row if we are at the bottom
+            form.scroll_offset = (idx + 1).saturating_sub(max_visible_rows) as u16;
+        }
+    } else {
+        // If focused field is navigation (Next/Create/Back), scroll to bottom
+        let is_nav = form.focused_field == CreateVaultField::NextButton
+            || form.focused_field == CreateVaultField::CreateButton
+            || form.focused_field == CreateVaultField::BackButton;
+
+        if is_nav && total_rows > max_visible_rows {
+            form.scroll_offset = (total_rows - max_visible_rows) as u16;
+        }
+    }
+
+    // Bound scroll offset
+    let max_scroll = total_rows.saturating_sub(max_visible_rows) as u16;
+    form.scroll_offset = form.scroll_offset.min(max_scroll);
 
     // Clear background
     frame.render_widget(Clear, form_area);
@@ -939,14 +978,14 @@ fn render_create_vault_form(
     frame.render_widget(block.clone(), form_area);
     let inner_area = block.inner(form_area);
 
+    // Apply scroll offset to determine visible items
     let mut constraints = vec![];
-    for _ in 0..fields_to_show.len() {
+    let start_idx = form.scroll_offset as usize;
+    let end_idx = (start_idx + max_visible_rows).min(total_rows);
+
+    for _ in start_idx..end_idx {
         constraints.push(Constraint::Length(3));
     }
-    // For the Next/Back/Create Buttons
-    constraints.push(Constraint::Length(1));
-    // Padding/Error space
-    constraints.push(Constraint::Length(2));
     constraints.push(Constraint::Min(0));
 
     let layout = Layout::default()
@@ -954,7 +993,15 @@ fn render_create_vault_form(
         .constraints(constraints)
         .split(inner_area);
 
-    for (i, (label, buffer_opt, field_enum)) in fields_to_show.iter().enumerate() {
+    let visible_fields = fields_to_show
+        .iter()
+        .enumerate()
+        .skip(start_idx)
+        .take(max_visible_rows);
+
+    let mut current_layout_idx = 0;
+
+    for (_, (label, buffer_opt, field_enum)) in visible_fields {
         let is_focused = form.focused_field == *field_enum;
         let border_style = if is_focused {
             Style::default()
@@ -986,11 +1033,11 @@ fn render_create_vault_form(
             let input_para = Paragraph::new(buffer.display())
                 .style(Style::default().fg(theme.fg))
                 .block(input_block.clone());
-            frame.render_widget(input_para, layout[i]);
+            frame.render_widget(input_para, layout[current_layout_idx]);
 
             if is_focused {
-                let cursor_x = layout[i].x + 1 + buffer.cursor as u16;
-                let cursor_y = layout[i].y + 1;
+                let cursor_x = layout[current_layout_idx].x + 1 + buffer.cursor as u16;
+                let cursor_y = layout[current_layout_idx].y + 1;
                 frame.set_cursor_position((cursor_x, cursor_y));
             }
         } else if *field_enum == CreateVaultField::EncryptionMethod {
@@ -1000,17 +1047,32 @@ fn render_create_vault_form(
                 form.encryption_method.display_name().to_string()
             };
 
-            let method_para = Paragraph::new(method_text)
-                .alignment(Alignment::Center)
-                .style(if is_focused {
+            let desc_text = format!(
+                "Security: {} | Speed: {}",
+                form.encryption_method.security_level(),
+                form.encryption_method.decryption_speed()
+            );
+
+            let method_para = Paragraph::new(vec![
+                Line::from(method_text).alignment(Alignment::Center),
+                Line::from(Span::styled(
+                    desc_text,
                     Style::default()
-                        .fg(theme.accent)
-                        .add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(theme.fg)
-                })
-                .block(input_block.clone());
-            frame.render_widget(method_para, layout[i]);
+                        .fg(theme.fg_muted)
+                        .add_modifier(Modifier::ITALIC),
+                ))
+                .alignment(Alignment::Center),
+            ])
+            .style(if is_focused {
+                Style::default()
+                    .fg(theme.accent)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(theme.fg)
+            })
+            .block(input_block.clone());
+
+            frame.render_widget(method_para, layout[current_layout_idx]);
         }
 
         let field_idx = match field_enum {
@@ -1031,26 +1093,71 @@ fn render_create_vault_form(
         };
         state.ui_state.layout_regions.register_clickable(
             crate::input::mouse::ClickRegion::new(
-                layout[i].x,
-                layout[i].y,
-                layout[i].width,
-                layout[i].height,
+                layout[current_layout_idx].x,
+                layout[current_layout_idx].y,
+                layout[current_layout_idx].width,
+                layout[current_layout_idx].height,
             ),
             crate::input::mouse::ClickableElement::FormField(field_idx),
         );
+        current_layout_idx += 1;
     }
 
-    let nav_row_idx = fields_to_show.len();
+    // Only render navigation if it's within the visible rows
+    let nav_row_in_view = fields_to_show.len() >= start_idx && fields_to_show.len() < end_idx;
 
-    // Render navigation buttons (Back / Next / Create)
-    let nav_layout = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-        .split(layout[nav_row_idx]);
+    if nav_row_in_view {
+        let nav_layout = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+            .split(layout[current_layout_idx]);
 
-    // Back Button (hidden on Step 1)
-    if form.step != CreateVaultStep::Step1 {
-        let btn_focused = form.focused_field == CreateVaultField::BackButton;
+        // Back Button (hidden on Step 1)
+        if form.step != CreateVaultStep::Step1 {
+            let btn_focused = form.focused_field == CreateVaultField::BackButton;
+            let btn_style = if btn_focused {
+                Style::default()
+                    .bg(theme.accent)
+                    .fg(theme.bg)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().bg(theme.selection_bg).fg(theme.fg)
+            };
+
+            let back_text = if btn_focused {
+                " ◂ Back (Esc) "
+            } else {
+                " Back (Esc) "
+            };
+            let back_para = Paragraph::new(back_text)
+                .alignment(Alignment::Center)
+                .style(btn_style);
+
+            // Make button fixed width
+            let btn_width = 16;
+            let btn_x = nav_layout[0].x + nav_layout[0].width.saturating_sub(btn_width); // Right align in left half
+            let btn_rect = Rect::new(btn_x.saturating_sub(1), nav_layout[0].y, btn_width, 1);
+
+            frame.render_widget(back_para, btn_rect);
+            state.ui_state.layout_regions.register_clickable(
+                crate::input::mouse::ClickRegion::new(
+                    btn_rect.x,
+                    btn_rect.y,
+                    btn_rect.width,
+                    btn_rect.height,
+                ),
+                crate::input::mouse::ClickableElement::FormField(14), // BackButton idx
+            );
+        }
+
+        // Next / Create Button
+        let is_last_step = form.step == CreateVaultStep::Step3;
+        let target_field = if is_last_step {
+            CreateVaultField::CreateButton
+        } else {
+            CreateVaultField::NextButton
+        };
+        let btn_focused = form.focused_field == target_field;
         let btn_style = if btn_focused {
             Style::default()
                 .bg(theme.accent)
@@ -1060,17 +1167,40 @@ fn render_create_vault_form(
             Style::default().bg(theme.selection_bg).fg(theme.fg)
         };
 
-        let back_text = if btn_focused { " ◂ Back " } else { " Back " };
-        let back_para = Paragraph::new(back_text)
+        let btn_text = if is_last_step {
+            if btn_focused {
+                " Create (Enter) ▸ "
+            } else {
+                " Create (Enter) "
+            }
+        } else {
+            if btn_focused {
+                " Next (Enter) ▸ "
+            } else {
+                " Next (Enter) "
+            }
+        };
+
+        let btn_para = Paragraph::new(btn_text)
             .alignment(Alignment::Center)
             .style(btn_style);
 
-        // Make button fixed width
-        let btn_width = 16;
-        let btn_x = nav_layout[0].x + nav_layout[0].width.saturating_sub(btn_width); // Right align in left half
-        let btn_rect = Rect::new(btn_x.saturating_sub(1), nav_layout[0].y, btn_width, 1);
+        let btn_width = 18;
+        let btn_x = if form.step == CreateVaultStep::Step1 {
+            // Center the button in Step 1
+            layout[current_layout_idx].x
+                + (layout[current_layout_idx].width.saturating_sub(btn_width)) / 2
+        } else {
+            nav_layout[1].x + 1 // Left align in right half
+        };
+        let btn_y = if form.step == CreateVaultStep::Step1 {
+            layout[current_layout_idx].y
+        } else {
+            nav_layout[1].y
+        };
+        let btn_rect = Rect::new(btn_x, btn_y, btn_width, 1);
 
-        frame.render_widget(back_para, btn_rect);
+        frame.render_widget(btn_para, btn_rect);
         state.ui_state.layout_regions.register_clickable(
             crate::input::mouse::ClickRegion::new(
                 btn_rect.x,
@@ -1078,58 +1208,17 @@ fn render_create_vault_form(
                 btn_rect.width,
                 btn_rect.height,
             ),
-            crate::input::mouse::ClickableElement::FormField(14), // BackButton idx
+            crate::input::mouse::ClickableElement::FormField(if is_last_step { 15 } else { 13 }),
         );
+        current_layout_idx += 1;
     }
 
-    // Next / Create Button
-    let is_last_step = form.step == CreateVaultStep::Step3;
-    let target_field = if is_last_step {
-        CreateVaultField::CreateButton
-    } else {
-        CreateVaultField::NextButton
-    };
-    let btn_focused = form.focused_field == target_field;
-    let btn_style = if btn_focused {
-        Style::default()
-            .bg(theme.accent)
-            .fg(theme.bg)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().bg(theme.selection_bg).fg(theme.fg)
-    };
+    // Render error message if it's within the visible rows
+    let error_row_in_view =
+        (fields_to_show.len() + 1) >= start_idx && (fields_to_show.len() + 1) < end_idx;
 
-    let btn_text = if is_last_step {
-        if btn_focused {
-            " Create ▸ "
-        } else {
-            " Create "
-        }
-    } else {
-        if btn_focused { " Next ▸ " } else { " Next " }
-    };
-
-    let btn_para = Paragraph::new(btn_text)
-        .alignment(Alignment::Center)
-        .style(btn_style);
-
-    let btn_width = 16;
-    let btn_x = nav_layout[1].x + 1; // Left align in right half
-    let btn_rect = Rect::new(btn_x, nav_layout[1].y, btn_width, 1);
-
-    frame.render_widget(btn_para, btn_rect);
-    state.ui_state.layout_regions.register_clickable(
-        crate::input::mouse::ClickRegion::new(
-            btn_rect.x,
-            btn_rect.y,
-            btn_rect.width,
-            btn_rect.height,
-        ),
-        crate::input::mouse::ClickableElement::FormField(if is_last_step { 15 } else { 13 }),
-    );
-
-    if let Some(ref error) = error_message {
-        let error_rect = layout[nav_row_idx + 1];
+    if error_row_in_view && let Some(ref error) = error_message {
+        let error_rect = layout[current_layout_idx];
         let error_text = ratatui::widgets::Paragraph::new(ratatui::text::Line::from(vec![
             ratatui::text::Span::styled(
                 format!("{} ", icons::ui::ERROR),

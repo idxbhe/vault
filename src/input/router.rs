@@ -48,7 +48,11 @@ fn route_login_key(state: &AppState, event: KeyEvent) -> Message {
             }
             KeyCode::Backspace => Message::InputBackspace,
             KeyCode::Delete => Message::InputDelete,
-            KeyCode::Left => Message::InputLeft,
+            KeyCode::Left => {
+                // If it's a Back button, or just general left navigation, we map to LoginPrevStep
+                // but let's just make Esc the dedicated key.
+                Message::InputLeft
+            }
             KeyCode::Right => Message::InputRight,
             KeyCode::Home => Message::InputHome,
             KeyCode::End => Message::InputEnd,
@@ -57,7 +61,15 @@ fn route_login_key(state: &AppState, event: KeyEvent) -> Message {
             KeyCode::Down => Message::FormNextField,
             KeyCode::Up => Message::FormPrevField,
             KeyCode::Enter => Message::InputSubmit,
-            KeyCode::Esc => Message::CancelInput,
+            KeyCode::Esc => {
+                if login_state.create_vault_form.step
+                    != crate::ui::screens::login::CreateVaultStep::Step1
+                {
+                    Message::LoginPrevStep
+                } else {
+                    Message::CancelInput
+                }
+            }
             KeyCode::Char('q') if event.modifiers.contains(KeyModifiers::CONTROL) => {
                 Message::ForceQuit
             }

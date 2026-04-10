@@ -79,6 +79,37 @@ impl Runtime {
                 EffectResult::Success
             }
 
+            Effect::CreateVault {
+                vault_name,
+                password,
+                use_keyfile,
+                keyfile_path,
+                encryption_method,
+                draft_qs,
+            } => match create_new_vault(
+                &vault_name,
+                &password,
+                use_keyfile,
+                &keyfile_path,
+                encryption_method,
+                draft_qs,
+            ) {
+                Ok((vault, path, key, salt, has_keyfile, recovery_metadata, keyfile_message)) => {
+                    EffectResult::VaultCreated {
+                        vault,
+                        path,
+                        vault_name,
+                        key,
+                        salt,
+                        has_keyfile,
+                        encryption_method,
+                        recovery_metadata,
+                        keyfile_message,
+                    }
+                }
+                Err(e) => EffectResult::Error(e),
+            },
+
             Effect::ReadVaultFile {
                 path,
                 password,
@@ -156,6 +187,9 @@ impl Runtime {
             },
 
             Effect::Exit => EffectResult::Success,
+
+            // This variant shouldn't really be sent to the runtime
+            Effect::VaultCreated { .. } => EffectResult::Success,
         }
     }
 
@@ -165,17 +199,19 @@ impl Runtime {
 
         // Check clipboard clear
         if let Some(clear_at) = self.clipboard_clear_at
-            && now >= clear_at {
-                self.clipboard_clear_at = None;
-                let _ = self.message_tx.send(Message::ClearClipboard);
-            }
+            && now >= clear_at
+        {
+            self.clipboard_clear_at = None;
+            let _ = self.message_tx.send(Message::ClearClipboard);
+        }
 
         // Check auto-lock
         if let Some(lock_at) = self.auto_lock_at
-            && now >= lock_at {
-                self.auto_lock_at = None;
-                let _ = self.message_tx.send(Message::LockVault);
-            }
+            && now >= lock_at
+        {
+            self.auto_lock_at = None;
+            let _ = self.message_tx.send(Message::LockVault);
+        }
     }
 
     /// Get time until next scheduled event (for sleep duration)
@@ -184,14 +220,16 @@ impl Runtime {
         let mut min_delay = Duration::from_millis(100); // Default tick rate
 
         if let Some(clear_at) = self.clipboard_clear_at
-            && clear_at > now {
-                min_delay = min_delay.min(clear_at - now);
-            }
+            && clear_at > now
+        {
+            min_delay = min_delay.min(clear_at - now);
+        }
 
         if let Some(lock_at) = self.auto_lock_at
-            && lock_at > now {
-                min_delay = min_delay.min(lock_at - now);
-            }
+            && lock_at > now
+        {
+            min_delay = min_delay.min(lock_at - now);
+        }
 
         min_delay
     }
@@ -545,4 +583,146 @@ mod tests {
         let mode = std::fs::metadata(export_path).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o600);
     }
+}
+
+pub fn create_new_vault(
+    vault_name: &str,
+    password: &SecureString,
+    use_keyfile: bool,
+    keyfile_path: &str,
+    encryption_method: crate::crypto::EncryptionMethod,
+    draft_qs: Vec<(String, String)>,
+) -> Result<
+    (
+        Vault,
+        PathBuf,
+        [u8; 32],
+        [u8; 32],
+        bool,
+        Option<crate::domain::RecoveryMetadata>,
+        Option<String>,
+    ),
+    String,
+> {
+    // Basic sanitization
+    let mut sanitized = String::with_capacity(vault_name.len());
+    for c in vault_name.chars() {
+        match c {
+            'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' => sanitized.push(c.to_ascii_lowercase()),
+            ' ' => sanitized.push('_'),
+            _ => sanitized.push('_'),
+        }
+    }
+    // Deduplicate underscores
+    let mut deduped = String::with_capacity(sanitized.len());
+    let mut last_was_underscore = false;
+    for c in sanitized.chars() {
+        if c == '_' {
+            if !last_was_underscore {
+                deduped.push(c);
+                last_was_underscore = true;
+            }
+        } else {
+            deduped.push(c);
+            last_was_underscore = false;
+        }
+    }
+    let sanitized = deduped.trim_matches('_').to_string();
+    let sanitized = if sanitized.is_empty() {
+        "vault".to_string()
+    } else {
+        sanitized
+    };
+
+    let vault_filename = format!("{}.vault", sanitized);
+    let vault_path = directories::ProjectDirs::from("com", "vault", "vault")
+        .map(|dirs| dirs.data_dir().to_path_buf())
+        .unwrap_or_else(|| PathBuf::from(".").join(".vault"))
+        .join(&vault_filename);
+
+    if let Some(parent) = vault_path.parent() {
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            return Err(format!("Failed to create vault directory: {}", e));
+        }
+    }
+
+    let mut vault = Vault::new(vault_name);
+    let mut keyfile_data: Option<Vec<u8>> = None;
+    let mut keyfile_message = None;
+
+    if use_keyfile {
+        let keyfile_path_buf = PathBuf::from(keyfile_path);
+        if keyfile_path_buf.exists() {
+            match crate::crypto::KeyFile::load(&keyfile_path_buf) {
+                Ok(keyfile) => keyfile_data = Some(keyfile.as_bytes().to_vec()),
+                Err(e) => return Err(format!("Invalid keyfile: {}", e)),
+            }
+        } else {
+            let generated = crate::crypto::KeyFile::generate();
+            if let Err(e) = generated.save(&keyfile_path_buf) {
+                return Err(format!("Failed to create keyfile: {}", e));
+            }
+            keyfile_data = Some(generated.as_bytes().to_vec());
+            keyfile_message = Some(format!(
+                "Generated keyfile at {}",
+                keyfile_path_buf.display()
+            ));
+        }
+    }
+
+    let recovery_metadata = if !draft_qs.is_empty() {
+        let question_answers = draft_qs
+            .into_iter()
+            .map(|(q, a)| (q, SecureString::new(a)))
+            .collect::<Vec<_>>();
+
+        match crate::domain::RecoveryMetadata::build(question_answers, password, encryption_method)
+        {
+            Ok(metadata) => {
+                vault.security_questions = metadata.questions.clone();
+                Some(metadata)
+            }
+            Err(e) => return Err(format!("Failed to configure recovery: {}", e)),
+        }
+    } else {
+        None
+    };
+
+    let has_keyfile = keyfile_data.is_some();
+    let vault_file = match VaultFile::new_with_options(
+        &vault,
+        password,
+        keyfile_data.as_deref(),
+        crate::crypto::Argon2Params::default(),
+        encryption_method,
+        recovery_metadata.clone(),
+    ) {
+        Ok(file) => file,
+        Err(e) => return Err(format!("Failed to create vault: {}", e)),
+    };
+
+    let salt = vault_file.encrypted_payload.salt;
+    if let Err(e) = vault_file.write(&vault_path) {
+        return Err(format!("Failed to save vault: {}", e));
+    }
+
+    let (_, key) = match vault_file.decrypt_with_key(password, keyfile_data.as_deref()) {
+        Ok(data) => data,
+        Err(e) => {
+            return Err(format!(
+                "Vault created but failed to initialize session key: {}",
+                e
+            ));
+        }
+    };
+
+    Ok((
+        vault,
+        vault_path,
+        key,
+        salt,
+        has_keyfile,
+        recovery_metadata,
+        keyfile_message,
+    ))
 }

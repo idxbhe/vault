@@ -87,15 +87,15 @@ fn render_middle_section(frame: &mut Frame, area: Rect, state: &AppState, theme:
         // Search indicator (show if search dialog is open)
         if let Some(FloatingWindow::Search {
             state: ref search_state,
-        }) = state.ui_state.floating_window {
-            if !search_state.query.is_empty() {
-                spans.push(Span::styled(
-                    format!("/{} ", search_state.query),
-                    Style::default().fg(theme.accent).bg(theme.bg_alt),
-                ));
-            }
-    }
+        }) = state.ui_state.floating_window
+            && !search_state.query.is_empty()
+        {
+            spans.push(Span::styled(
+                format!("/{} ", search_state.query),
+                Style::default().fg(theme.accent).bg(theme.bg_alt),
+            ));
         }
+    }
 
     // Keybinding hints
     let hints = get_context_hints(state);
