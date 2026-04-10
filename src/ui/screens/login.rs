@@ -285,7 +285,7 @@ fn create_vault_list_item<'a>(
         Span::styled(selector, style),
         Span::styled(icon, Style::default().fg(theme.accent)),
         Span::raw(" "),
-        Span::styled(&entry.name, style),
+        Span::styled(entry.name.as_str(), style),
     ]);
 
     ListItem::new(line)
@@ -497,7 +497,7 @@ fn render_create_vault_form(
         .title(Span::styled(field_title, Style::default().fg(theme.accent)));
 
     let input = match step {
-        0 => Paragraph::new(&state.ui_state.input_buffer.text),
+        0 => Paragraph::new(state.ui_state.input_buffer.text.as_str()),
         1 => Paragraph::new(state.ui_state.input_buffer.display()),
         2 => Paragraph::new(state.ui_state.input_buffer.display()),
         _ => Paragraph::new(""),
