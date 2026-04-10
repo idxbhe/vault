@@ -2512,12 +2512,13 @@ fn parse_custom_field_type(
 }
 
 fn sanitize_vault_filename(name: &str) -> String {
-    let mut sanitized = String::with_capacity(name.len());
+    let name = name.trim();
+    let mut sanitized = String::with_capacity(name.len().min(64));
     let mut prev_underscore = false;
 
-    for c in name.trim().chars().map(|ch| ch.to_ascii_lowercase()) {
+    for c in name.chars() {
         let normalized = if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
-            c
+            c.to_ascii_lowercase()
         } else {
             '_'
         };
