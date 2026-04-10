@@ -13,7 +13,7 @@ use ratatui::{
 use chrono::{DateTime, Utc};
 
 use crate::app::AppState;
-use crate::domain::{Item, ItemContent, Tag};
+use crate::domain::{CustomFieldType, Item, ItemContent, Tag};
 use crate::ui::theme::ThemePalette;
 use crate::utils::{icons, mask};
 
@@ -288,6 +288,21 @@ fn build_content_section<'a>(
                 ));
             }
         }
+        ItemContent::Custom { fields } => {
+            if fields.is_empty() {
+                lines.push(Line::from(Span::styled(
+                    "No custom fields configured",
+                    Style::default().fg(theme.fg_muted),
+                )));
+            } else {
+                for field in fields {
+                    let sensitive =
+                        matches!(field.field_type, CustomFieldType::Secret) && !revealed;
+                    let label = format!("{} ({})", field.key, field.field_type.as_str());
+                    lines.push(build_field_line(&label, &field.value, sensitive, theme));
+                }
+            }
+        }
     }
 
     lines
@@ -295,7 +310,7 @@ fn build_content_section<'a>(
 
 /// Build a single field line with optional masking
 fn build_field_line<'a>(
-    label: &'a str,
+    label: &str,
     value: &str,
     sensitive: bool,
     theme: &'a ThemePalette,

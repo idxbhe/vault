@@ -28,8 +28,9 @@ fn route_key_event(state: &AppState, event: KeyEvent, keybindings: &KeybindingCo
     // Handle screen-specific input
     match state.screen {
         Screen::Login => route_login_key(state, event),
+        Screen::PasswordRecovery => route_password_recovery_key(event),
         Screen::Main => route_main_key(state, event, keybindings),
-        Screen::Settings => route_settings_key(event),
+        Screen::Settings => route_settings_key(state, event),
         _ => Message::Noop,
     }
 }
@@ -39,7 +40,7 @@ fn route_login_key(state: &AppState, event: KeyEvent) -> Message {
     // Check login screen mode
     let login_state = &state.login_screen;
 
-    // If creating a new vault, all input goes to vault name field
+    // If creating a new vault, treat it as a form
     if login_state.creating_vault {
         return match event.code {
             KeyCode::Char(c) if !event.modifiers.contains(KeyModifiers::CONTROL) => {
@@ -51,6 +52,10 @@ fn route_login_key(state: &AppState, event: KeyEvent) -> Message {
             KeyCode::Right => Message::InputRight,
             KeyCode::Home => Message::InputHome,
             KeyCode::End => Message::InputEnd,
+            KeyCode::Tab => Message::FormNextField,
+            KeyCode::BackTab => Message::FormPrevField,
+            KeyCode::Down => Message::FormNextField,
+            KeyCode::Up => Message::FormPrevField,
             KeyCode::Enter => Message::InputSubmit,
             KeyCode::Esc => Message::CancelInput,
             KeyCode::Char('q') if event.modifiers.contains(KeyModifiers::CONTROL) => {
@@ -90,6 +95,9 @@ fn route_login_key(state: &AppState, event: KeyEvent) -> Message {
     // If entering password, all input goes to password field
     if login_state.entering_password {
         return match event.code {
+            KeyCode::Char('f') if !event.modifiers.contains(KeyModifiers::CONTROL) => {
+                Message::StartPasswordRecovery
+            }
             KeyCode::Char(c) if !event.modifiers.contains(KeyModifiers::CONTROL) => {
                 Message::InputChar(c)
             }
@@ -136,6 +144,29 @@ fn route_login_key(state: &AppState, event: KeyEvent) -> Message {
             } else {
                 Message::Noop
             }
+        }
+        _ => Message::Noop,
+    }
+}
+
+/// Route keys in forgot-password recovery mode
+fn route_password_recovery_key(event: KeyEvent) -> Message {
+    match event.code {
+        KeyCode::Char(c) if !event.modifiers.contains(KeyModifiers::CONTROL) => {
+            Message::InputChar(c)
+        }
+        KeyCode::Backspace => Message::InputBackspace,
+        KeyCode::Delete => Message::InputDelete,
+        KeyCode::Left => Message::InputLeft,
+        KeyCode::Right => Message::InputRight,
+        KeyCode::Home => Message::InputHome,
+        KeyCode::End => Message::InputEnd,
+        KeyCode::Enter => Message::InputSubmit,
+        KeyCode::Esc => Message::CancelInput,
+        KeyCode::Char('q') | KeyCode::Char('c')
+            if event.modifiers.contains(KeyModifiers::CONTROL) =>
+        {
+            Message::ForceQuit
         }
         _ => Message::Noop,
     }
@@ -384,7 +415,24 @@ fn route_tag_filter_key(event: KeyEvent) -> Message {
 }
 
 /// Route keys in settings screen  
-fn route_settings_key(event: KeyEvent) -> Message {
+fn route_settings_key(state: &AppState, event: KeyEvent) -> Message {
+    if state.settings_state.security_action.is_some() {
+        return match event.code {
+            KeyCode::Char(c) if !event.modifiers.contains(KeyModifiers::CONTROL) => {
+                Message::InputChar(c)
+            }
+            KeyCode::Backspace => Message::InputBackspace,
+            KeyCode::Delete => Message::InputDelete,
+            KeyCode::Left => Message::InputLeft,
+            KeyCode::Right => Message::InputRight,
+            KeyCode::Home => Message::InputHome,
+            KeyCode::End => Message::InputEnd,
+            KeyCode::Enter => Message::InputSubmit,
+            KeyCode::Esc => Message::CancelInput,
+            _ => Message::Noop,
+        };
+    }
+
     match event.code {
         KeyCode::Esc | KeyCode::Char('q') => Message::Navigate(Screen::Main),
         KeyCode::Down | KeyCode::Char('j') => Message::SelectNextItem,
@@ -528,8 +576,10 @@ fn handle_clickable_element(
                 "quit" => Message::Quit,
                 "unlock" => Message::InputSubmit, // Trigger unlock attempt
                 "back" => Message::CancelInput,   // Fixed: was InputCancel, now CancelInput
+                "forgot-password" => Message::StartPasswordRecovery,
+                "submit-recovery" => Message::InputSubmit,
                 "prev-step" => Message::LoginPrevStep, // Go back in vault creation
-                "save-vault" => Message::InputSubmit, // Trigger vault creation
+                "save-vault" => Message::InputSubmit,  // Trigger vault creation
                 "cancel" => {
                     // In vault creation mode, cancel should exit to login
                     if state.login_screen.creating_vault {
@@ -716,6 +766,8 @@ mod tests {
             [0u8; 32],
             [0u8; 32],
             false,
+            crate::crypto::EncryptionMethod::Aes256Gcm,
+            None,
         ));
         state.vault_state.as_mut().unwrap().selected_item_id = Some(item_id);
         state.mode = AppMode::Unlocked;

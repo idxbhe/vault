@@ -111,6 +111,11 @@ impl Item {
         )
     }
 
+    /// Create a custom item with dynamic typed fields
+    pub fn custom(title: impl Into<String>, fields: Vec<CustomField>) -> Self {
+        Self::new(title, ItemKind::Custom, ItemContent::Custom { fields })
+    }
+
     /// Set notes
     pub fn with_notes(mut self, notes: impl Into<String>) -> Self {
         self.notes = Some(notes.into());
@@ -142,6 +147,11 @@ impl Item {
             ItemContent::Password { password, .. } => Some(password),
             ItemContent::SecureNote { content } => Some(content),
             ItemContent::ApiKey { key, .. } => Some(key),
+            ItemContent::Custom { fields } => fields
+                .iter()
+                .find(|f| f.field_type == CustomFieldType::Secret)
+                .or_else(|| fields.first())
+                .map(|f| f.value.as_str()),
         }
     }
 }
@@ -161,6 +171,8 @@ pub enum ItemKind {
     SecureNote,
     /// API key or token
     ApiKey,
+    /// Dynamic custom entry with typed fields
+    Custom,
 }
 
 impl ItemKind {
@@ -172,6 +184,7 @@ impl ItemKind {
             ItemKind::Password => "Password",
             ItemKind::SecureNote => "Secure Note",
             ItemKind::ApiKey => "API Key",
+            ItemKind::Custom => "Custom Entry",
         }
     }
 
@@ -183,6 +196,7 @@ impl ItemKind {
             ItemKind::Password => "󰌋",
             ItemKind::SecureNote => "󱞂",
             ItemKind::ApiKey => "󰯄",
+            ItemKind::Custom => "󰅩",
         }
     }
 
@@ -194,6 +208,7 @@ impl ItemKind {
             ItemKind::Password,
             ItemKind::SecureNote,
             ItemKind::ApiKey,
+            ItemKind::Custom,
         ]
     }
 
@@ -222,8 +237,38 @@ impl ItemKind {
                 service: None,
                 expires_at: None,
             },
+            ItemKind::Custom => ItemContent::Custom { fields: vec![] },
         }
     }
+}
+
+/// Supported field types for custom entries.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CustomFieldType {
+    Text,
+    Secret,
+    Url,
+    Number,
+}
+
+impl CustomFieldType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            CustomFieldType::Text => "text",
+            CustomFieldType::Secret => "secret",
+            CustomFieldType::Url => "url",
+            CustomFieldType::Number => "number",
+        }
+    }
+}
+
+/// A single dynamic field in a custom entry.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CustomField {
+    pub key: String,
+    pub value: String,
+    pub field_type: CustomFieldType,
 }
 
 /// Type-specific content for items
@@ -257,6 +302,9 @@ pub enum ItemContent {
         service: Option<String>,
         expires_at: Option<DateTime<Utc>>,
     },
+
+    /// Dynamic key/value fields with per-field type
+    Custom { fields: Vec<CustomField> },
 }
 
 impl Default for ItemContent {
@@ -306,5 +354,27 @@ mod tests {
     fn test_item_kind_display() {
         assert_eq!(ItemKind::CryptoSeed.display_name(), "Crypto Seed");
         assert_eq!(ItemKind::Password.icon(), "󰌋");
+    }
+
+    #[test]
+    fn test_custom_item_copy_prefers_secret_field() {
+        let item = Item::custom(
+            "Server Access",
+            vec![
+                CustomField {
+                    key: "host".to_string(),
+                    value: "example.com".to_string(),
+                    field_type: CustomFieldType::Url,
+                },
+                CustomField {
+                    key: "token".to_string(),
+                    value: "secret-token".to_string(),
+                    field_type: CustomFieldType::Secret,
+                },
+            ],
+        );
+
+        assert_eq!(item.kind, ItemKind::Custom);
+        assert_eq!(item.get_copyable_content(), Some("secret-token"));
     }
 }

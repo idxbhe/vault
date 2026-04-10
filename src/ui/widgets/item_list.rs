@@ -260,6 +260,7 @@ fn get_item_icon(kind: ItemKind) -> &'static str {
         ItemKind::Password => icons::item::PASSWORD,
         ItemKind::SecureNote => icons::item::SECURE_NOTE,
         ItemKind::ApiKey => icons::item::API_KEY,
+        ItemKind::Custom => icons::item::CUSTOM,
     }
 }
 

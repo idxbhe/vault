@@ -8,6 +8,7 @@ use ratatui::Frame;
 
 use crate::app::state::NotificationLevel;
 use crate::app::{AppMode, AppState, Effect, Message, Screen, VaultState, update};
+use crate::crypto::EncryptionMethod;
 use crate::domain::Vault;
 use crate::ui::screens::{
     ExportScreen, LoginScreen, MainScreen, SettingsScreen, render_export, render_login,
@@ -21,8 +22,6 @@ pub struct App {
     state: AppState,
     /// Main screen state
     main_screen: MainScreen,
-    /// Settings screen state
-    settings_screen: SettingsScreen,
     /// Export screen state
     export_screen: ExportScreen,
 }
@@ -33,7 +32,6 @@ impl App {
         Self {
             state,
             main_screen: MainScreen::new(),
-            settings_screen: SettingsScreen::new(),
             export_screen: ExportScreen::new(),
         }
     }
@@ -61,21 +59,17 @@ impl App {
         self.state.ui_state.clear_layout_regions();
 
         match self.state.screen {
-            Screen::Login => {
+            Screen::Login | Screen::PasswordRecovery | Screen::SecurityQuestions => {
                 render_login(frame, &mut self.state, &theme);
             }
             Screen::Main => {
                 render_main(frame, &mut self.state, &mut self.main_screen, &theme);
             }
             Screen::Settings => {
-                render_settings(frame, &self.state, &self.settings_screen, &theme);
+                render_settings(frame, &self.state, &self.state.settings_state, &theme);
             }
             Screen::Export => {
                 render_export(frame, &self.state, &self.export_screen, &theme);
-            }
-            _ => {
-                // Other screens render to main for now
-                render_main(frame, &mut self.state, &mut self.main_screen, &theme);
             }
         }
     }
@@ -92,7 +86,7 @@ impl App {
 
     /// Get the settings screen state
     pub fn settings_screen_mut(&mut self) -> &mut SettingsScreen {
-        &mut self.settings_screen
+        &mut self.state.settings_state
     }
 
     /// Get the export screen state
@@ -108,12 +102,22 @@ impl App {
         key: [u8; 32],
         salt: [u8; 32],
         has_keyfile: bool,
+        encryption_method: EncryptionMethod,
+        recovery_metadata: Option<crate::domain::RecoveryMetadata>,
     ) {
         // Stop loading indicator
         self.state.ui_state.stop_loading();
 
         // Create vault state with salt
-        let vault_state = VaultState::new(vault, path.clone(), key, salt, has_keyfile);
+        let vault_state = VaultState::new(
+            vault,
+            path.clone(),
+            key,
+            salt,
+            has_keyfile,
+            encryption_method,
+            recovery_metadata,
+        );
 
         // Update app state
         self.state.vault_state = Some(vault_state);
@@ -143,12 +147,22 @@ impl App {
         key: [u8; 32],
         salt: [u8; 32],
         has_keyfile: bool,
+        encryption_method: EncryptionMethod,
+        recovery_metadata: Option<crate::domain::RecoveryMetadata>,
     ) {
         // Stop loading indicator
         self.state.ui_state.stop_loading();
 
         // Same as loaded, but with different message
-        let vault_state = VaultState::new(vault, path.clone(), key, salt, has_keyfile);
+        let vault_state = VaultState::new(
+            vault,
+            path.clone(),
+            key,
+            salt,
+            has_keyfile,
+            encryption_method,
+            recovery_metadata,
+        );
 
         self.state.vault_state = Some(vault_state);
         self.state.mode = AppMode::Unlocked;

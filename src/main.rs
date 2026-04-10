@@ -148,8 +148,18 @@ fn handle_effect_result(app: &mut App, result: EffectResult) {
             key,
             salt,
             has_keyfile,
+            encryption_method,
+            recovery_metadata,
         } => {
-            app.handle_vault_loaded(vault, path, key, salt, has_keyfile);
+            app.handle_vault_loaded(
+                vault,
+                path,
+                key,
+                salt,
+                has_keyfile,
+                encryption_method,
+                recovery_metadata,
+            );
         }
 
         EffectResult::VaultSaved => {
