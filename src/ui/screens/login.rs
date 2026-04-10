@@ -1036,106 +1036,6 @@ fn render_password_recovery_form(
     frame.render_widget(attempts_para, chunks[4]);
 }
 
-fn render_password_recovery_form(
-    frame: &mut Frame,
-    area: Rect,
-    state: &mut AppState,
-    theme: &ThemePalette,
-) {
-    let Some(session) = state.login_screen.password_recovery.as_ref() else {
-        let paragraph = Paragraph::new("No active recovery session")
-            .alignment(Alignment::Center)
-            .block(create_block("Password Recovery", theme));
-        frame.render_widget(paragraph, area);
-        return;
-    };
-
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(3), // title
-            Constraint::Length(2), // question progress
-            Constraint::Length(3), // answer input
-            Constraint::Length(3), // hint/password reveal
-            Constraint::Length(2), // attempts
-            Constraint::Min(0),
-        ])
-        .split(area);
-
-    let title = Paragraph::new(Line::from(vec![
-        Span::styled(
-            format!("{} ", icons::ui::VAULT_LOCKED),
-            Style::default().fg(theme.accent),
-        ),
-        Span::styled(
-            format!("Recover \"{}\"", session.vault_name),
-            Style::default().fg(theme.fg).add_modifier(Modifier::BOLD),
-        ),
-    ]))
-    .alignment(Alignment::Center);
-    frame.render_widget(title, chunks[0]);
-
-    let question_text = if session.is_complete() {
-        "Recovery complete".to_string()
-    } else if session.is_locked_out() {
-        "Recovery locked".to_string()
-    } else {
-        format!(
-            "Question {}/{}: {}",
-            session.current_question + 1,
-            session.metadata.questions.len(),
-            session.current_question_text().unwrap_or("-")
-        )
-    };
-    let question_para = Paragraph::new(question_text)
-        .alignment(Alignment::Center)
-        .style(Style::default().fg(theme.fg_muted));
-    frame.render_widget(question_para, chunks[1]);
-
-    let input = Paragraph::new(state.ui_state.input_buffer.display())
-        .style(Style::default().fg(theme.fg))
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(theme.border_focused))
-                .border_type(ratatui::widgets::BorderType::Rounded)
-                .title(Span::styled(" Answer ", Style::default().fg(theme.accent))),
-        );
-    frame.render_widget(input, chunks[2]);
-
-    if !session.is_complete() && !session.is_locked_out() {
-        let cursor_x = chunks[2].x + 1 + state.ui_state.input_buffer.cursor as u16;
-        let cursor_y = chunks[2].y + 1;
-        frame.set_cursor_position((cursor_x, cursor_y));
-    }
-
-    let reveal_text = session
-        .recovered_password
-        .as_ref()
-        .map(|p| format!("Recovered password: {}", p))
-        .or_else(|| {
-            session
-                .latest_hint
-                .as_ref()
-                .map(|h| format!("Current hint: {}", h))
-        })
-        .unwrap_or_else(|| "Current hint: ••••••••".to_string());
-    let reveal_para = Paragraph::new(reveal_text)
-        .alignment(Alignment::Center)
-        .style(Style::default().fg(theme.fg));
-    frame.render_widget(reveal_para, chunks[3]);
-
-    let attempts = format!(
-        "Attempts remaining: {} / {}",
-        session.remaining_attempts(),
-        session.metadata.max_attempts
-    );
-    let attempts_para = Paragraph::new(attempts)
-        .alignment(Alignment::Center)
-        .style(Style::default().fg(theme.warning));
-    frame.render_widget(attempts_para, chunks[4]);
-}
-
 /// Render the footer with keybinding hints
 /// Render action buttons with embedded keyboard hints
 fn render_footer(
@@ -1168,11 +1068,7 @@ fn render_footer(
         let mut btns = vec![];
         btns.push((
             "save-vault".to_string(),
-            if step == CreateVaultStep::ConfirmCreate {
-                "Create"
-            } else {
-                "Next"
-            },
+            "Create",
             Some("Enter"),
             ButtonStyle::Primary,
         ));
