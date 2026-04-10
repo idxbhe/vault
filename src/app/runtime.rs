@@ -362,9 +362,10 @@ pub fn export_vault(
             .write(path)
             .map_err(|e| format!("Failed to write encrypted export: {}", e))
     } else {
-        let json = serde_json::to_string_pretty(vault)
-            .map_err(|e| format!("Failed to serialize vault: {}", e))?;
-        write_plaintext_export_atomic(path, json.as_bytes())
+        write_plaintext_export_atomic_stream(path, |file| {
+            serde_json::to_writer_pretty(file, vault)
+                .map_err(|e| format!("Failed to serialize vault: {}", e))
+        })
     }
 }
 
@@ -413,9 +414,12 @@ fn sync_parent_dir(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn write_plaintext_export_atomic(path: &Path, contents: &[u8]) -> Result<(), String> {
-    use std::io::Write;
-
+fn write_plaintext_export_atomic_stream<
+    W: FnOnce(&mut std::io::BufWriter<&std::fs::File>) -> Result<(), String>,
+>(
+    path: &Path,
+    write_fn: W,
+) -> Result<(), String> {
     if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent)
             .map_err(|e| format!("Failed to create export directory: {}", e))?;
@@ -434,10 +438,15 @@ fn write_plaintext_export_atomic(path: &Path, contents: &[u8]) -> Result<(), Str
     );
     let tmp_path = parent.join(tmp_name);
 
-    let mut file = create_secure_file(&tmp_path)?;
+    let file = create_secure_file(&tmp_path)?;
     let write_result = (|| {
-        file.write_all(contents)
-            .map_err(|e| format!("Failed to write export: {}", e))?;
+        {
+            let mut writer = std::io::BufWriter::new(&file);
+            let res = write_fn(&mut writer);
+            std::io::Write::flush(&mut writer).map_err(|e| format!("Failed to flush: {}", e))?;
+            res
+        }
+        .map_err(|e| format!("Failed to write export: {}", e))?;
         file.sync_all()
             .map_err(|e| format!("Failed to sync export: {}", e))
     })();
