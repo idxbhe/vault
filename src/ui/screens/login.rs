@@ -914,7 +914,7 @@ fn render_create_vault_form(
         .position(|(_, _, field_enum)| form.focused_field == *field_enum);
 
     // Total fields + nav + error padding
-    let total_rows = fields_to_show.len() + 2;
+    let _total_rows = fields_to_show.len() + 2;
 
     // Calculate form dimensions
     let form_width = area.width.min(70);
@@ -1023,27 +1023,28 @@ fn render_create_vault_form(
     // Apply scroll offset to determine visible items
     let mut constraints = vec![];
     let start_idx = form.scroll_offset as usize;
-    let end_idx = (start_idx + max_visible_rows).min(total_rows);
+    let max_visible_fields = max_visible_rows.min(fields_to_show.len());
+    let end_idx = (start_idx + max_visible_fields).min(fields_to_show.len());
 
     for i in start_idx..end_idx {
-        if i < fields_to_show.len() {
-            let field = fields_to_show[i].2;
-            if field == CreateVaultField::EncryptionMethod {
-                constraints.push(Constraint::Length(4));
-            } else if field == CreateVaultField::UseKeyfile
-                || field == CreateVaultField::RecoveryQuestionsCount
-            {
-                constraints.push(Constraint::Length(5)); // Give room for descriptions
-            } else {
-                constraints.push(Constraint::Length(3));
-            }
-        } else if i == fields_to_show.len() {
-             constraints.push(Constraint::Length(1)); // Nav row
-        } else if i == fields_to_show.len() + 1 {
-             constraints.push(Constraint::Length(2)); // Error padding
+        let field = fields_to_show[i].2;
+        if field == CreateVaultField::EncryptionMethod {
+            constraints.push(Constraint::Length(4));
+        } else if field == CreateVaultField::UseKeyfile
+            || field == CreateVaultField::RecoveryQuestionsCount
+        {
+            constraints.push(Constraint::Length(6)); // Give room for descriptions
+        } else {
+            constraints.push(Constraint::Length(3));
         }
     }
+
+    // Fill empty space if we have less fields than required
     constraints.push(Constraint::Min(0));
+
+    // Always add Nav row and Error row at the end
+    constraints.push(Constraint::Length(1)); // Nav row
+    constraints.push(Constraint::Length(2)); // Error padding
 
     let layout = Layout::default()
         .direction(Direction::Vertical)
@@ -1054,7 +1055,7 @@ fn render_create_vault_form(
         .iter()
         .enumerate()
         .skip(start_idx)
-        .take(max_visible_rows);
+        .take(max_visible_fields);
 
     let mut current_layout_idx = 0;
 
@@ -1216,61 +1217,18 @@ fn render_create_vault_form(
         current_layout_idx += 1;
     }
 
-    // Only render navigation if it's within the visible rows
-    let nav_row_in_view = fields_to_show.len() >= start_idx && fields_to_show.len() < end_idx;
+    // Navigation row is always added at the end (idx = total constrained length - 2)
+    let nav_layout_idx = layout.len() - 2;
+    let error_layout_idx = layout.len() - 1;
 
-    if nav_row_in_view {
-        let nav_layout = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-            .split(layout[current_layout_idx]);
+    let nav_layout = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(layout[nav_layout_idx]);
 
-        // Back Button (hidden on Step 1)
-        if form.step != CreateVaultStep::Step1 {
-            let btn_focused = form.focused_field == CreateVaultField::BackButton;
-            let btn_style = if btn_focused {
-                Style::default()
-                    .bg(theme.accent)
-                    .fg(theme.bg)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().bg(theme.selection_bg).fg(theme.fg)
-            };
-
-            let back_text = if btn_focused {
-                " ◂ Back (Esc) "
-            } else {
-                " Back (Esc) "
-            };
-            let back_para = Paragraph::new(back_text)
-                .alignment(Alignment::Center)
-                .style(btn_style);
-
-            // Make button fixed width
-            let btn_width = 16;
-            let btn_x = nav_layout[0].x + nav_layout[0].width.saturating_sub(btn_width); // Right align in left half
-            let btn_rect = Rect::new(btn_x.saturating_sub(1), nav_layout[0].y, btn_width, 1);
-
-            frame.render_widget(back_para, btn_rect);
-            state.ui_state.layout_regions.register_clickable(
-                crate::input::mouse::ClickRegion::new(
-                    btn_rect.x,
-                    btn_rect.y,
-                    btn_rect.width,
-                    btn_rect.height,
-                ),
-                crate::input::mouse::ClickableElement::FormField(14), // BackButton idx
-            );
-        }
-
-        // Next / Create Button
-        let is_last_step = form.step == CreateVaultStep::Step3;
-        let target_field = if is_last_step {
-            CreateVaultField::CreateButton
-        } else {
-            CreateVaultField::NextButton
-        };
-        let btn_focused = form.focused_field == target_field;
+    // Back Button (hidden on Step 1)
+    if form.step != CreateVaultStep::Step1 {
+        let btn_focused = form.focused_field == CreateVaultField::BackButton;
         let btn_style = if btn_focused {
             Style::default()
                 .bg(theme.accent)
@@ -1280,40 +1238,21 @@ fn render_create_vault_form(
             Style::default().bg(theme.selection_bg).fg(theme.fg)
         };
 
-        let btn_text = if is_last_step {
-            if btn_focused {
-                " Create (Enter) ▸ "
-            } else {
-                " Create (Enter) "
-            }
+        let back_text = if btn_focused {
+            " ◂ Back (Esc) "
         } else {
-            if btn_focused {
-                " Next (Enter) ▸ "
-            } else {
-                " Next (Enter) "
-            }
+            " Back (Esc) "
         };
-
-        let btn_para = Paragraph::new(btn_text)
+        let back_para = Paragraph::new(back_text)
             .alignment(Alignment::Center)
             .style(btn_style);
 
-        let btn_width = 18;
-        let btn_x = if form.step == CreateVaultStep::Step1 {
-            // Center the button in Step 1
-            layout[current_layout_idx].x
-                + (layout[current_layout_idx].width.saturating_sub(btn_width)) / 2
-        } else {
-            nav_layout[1].x + 1 // Left align in right half
-        };
-        let btn_y = if form.step == CreateVaultStep::Step1 {
-            layout[current_layout_idx].y
-        } else {
-            nav_layout[1].y
-        };
-        let btn_rect = Rect::new(btn_x, btn_y, btn_width, 1);
+        // Make button fixed width
+        let btn_width = 16;
+        let btn_x = nav_layout[0].x + nav_layout[0].width.saturating_sub(btn_width); // Right align in left half
+        let btn_rect = Rect::new(btn_x.saturating_sub(1), nav_layout[0].y, btn_width, 1);
 
-        frame.render_widget(btn_para, btn_rect);
+        frame.render_widget(back_para, btn_rect);
         state.ui_state.layout_regions.register_clickable(
             crate::input::mouse::ClickRegion::new(
                 btn_rect.x,
@@ -1321,17 +1260,74 @@ fn render_create_vault_form(
                 btn_rect.width,
                 btn_rect.height,
             ),
-            crate::input::mouse::ClickableElement::FormField(if is_last_step { 15 } else { 13 }),
+            crate::input::mouse::ClickableElement::FormField(14), // BackButton idx
         );
-        current_layout_idx += 1;
     }
 
-    // Render error message if it's within the visible rows
-    let error_row_in_view =
-        (fields_to_show.len() + 1) >= start_idx && (fields_to_show.len() + 1) < end_idx;
+    // Next / Create Button
+    let is_last_step = form.step == CreateVaultStep::Step3;
+    let target_field = if is_last_step {
+        CreateVaultField::CreateButton
+    } else {
+        CreateVaultField::NextButton
+    };
+    let btn_focused = form.focused_field == target_field;
+    let btn_style = if btn_focused {
+        Style::default()
+            .bg(theme.accent)
+            .fg(theme.bg)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().bg(theme.selection_bg).fg(theme.fg)
+    };
 
-    if error_row_in_view && let Some(ref error) = error_message {
-        let error_rect = layout[current_layout_idx];
+    let btn_text = if is_last_step {
+        if btn_focused {
+            " Create (Enter) ▸ "
+        } else {
+            " Create (Enter) "
+        }
+    } else {
+        if btn_focused {
+            " Next (Enter) ▸ "
+        } else {
+            " Next (Enter) "
+        }
+    };
+
+    let btn_para = Paragraph::new(btn_text)
+        .alignment(Alignment::Center)
+        .style(btn_style);
+
+    let btn_width = 18;
+    let btn_x = if form.step == CreateVaultStep::Step1 {
+        // Center the button in Step 1
+        layout[nav_layout_idx].x
+            + (layout[nav_layout_idx].width.saturating_sub(btn_width)) / 2
+    } else {
+        nav_layout[1].x + 1 // Left align in right half
+    };
+    let btn_y = if form.step == CreateVaultStep::Step1 {
+        layout[nav_layout_idx].y
+    } else {
+        nav_layout[1].y
+    };
+    let btn_rect = Rect::new(btn_x, btn_y, btn_width, 1);
+
+    frame.render_widget(btn_para, btn_rect);
+    state.ui_state.layout_regions.register_clickable(
+        crate::input::mouse::ClickRegion::new(
+            btn_rect.x,
+            btn_rect.y,
+            btn_rect.width,
+            btn_rect.height,
+        ),
+        crate::input::mouse::ClickableElement::FormField(if is_last_step { 15 } else { 13 }),
+    );
+
+    // Render error message
+    if let Some(ref error) = error_message {
+        let error_rect = layout[error_layout_idx];
         let error_text = ratatui::widgets::Paragraph::new(ratatui::text::Line::from(vec![
             ratatui::text::Span::styled(
                 format!("{} ", icons::ui::ERROR),
