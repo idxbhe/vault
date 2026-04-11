@@ -154,7 +154,7 @@ pub struct CreateVaultFormState {
     pub confirm_password: crate::app::state::InputBuffer,
     pub use_keyfile: crate::app::state::InputBuffer,
     pub keyfile_path: crate::app::state::InputBuffer,
-    pub recovery_questions_count: crate::app::state::InputBuffer,
+    pub recovery_questions_count: usize,
     pub question1: crate::app::state::InputBuffer,
     pub answer1: crate::app::state::InputBuffer,
     pub question2: crate::app::state::InputBuffer,
@@ -184,7 +184,6 @@ impl CreateVaultFormState {
             CreateVaultField::ConfirmPassword => Some(&mut self.confirm_password),
             CreateVaultField::UseKeyfile => Some(&mut self.use_keyfile),
             CreateVaultField::KeyfilePath => Some(&mut self.keyfile_path),
-            CreateVaultField::RecoveryQuestionsCount => Some(&mut self.recovery_questions_count),
             CreateVaultField::RecoveryQuestion1 => Some(&mut self.question1),
             CreateVaultField::RecoveryAnswer1 => Some(&mut self.answer1),
             CreateVaultField::RecoveryQuestion2 => Some(&mut self.question2),
@@ -202,7 +201,6 @@ impl CreateVaultFormState {
             CreateVaultField::ConfirmPassword => Some(&self.confirm_password),
             CreateVaultField::UseKeyfile => Some(&self.use_keyfile),
             CreateVaultField::KeyfilePath => Some(&self.keyfile_path),
-            CreateVaultField::RecoveryQuestionsCount => Some(&self.recovery_questions_count),
             CreateVaultField::RecoveryQuestion1 => Some(&self.question1),
             CreateVaultField::RecoveryAnswer1 => Some(&self.answer1),
             CreateVaultField::RecoveryQuestion2 => Some(&self.question2),
@@ -802,6 +800,13 @@ fn render_create_vault_form(
     state: &mut AppState,
     theme: &ThemePalette,
 ) {
+    // We cannot mutably borrow state here if it is going to violate borrow rules,
+    // but the function signature accepts `state: &mut AppState`.
+    // Let's defer any mutation until the end, or clone what we need.
+    // Actually, Ratatui render functions should generally take `&AppState`.
+    // Wait, the signature is `state: &mut AppState`. Let's just fix the logic
+    // for calculating offset and stop mutating `form.scroll_offset` inside render,
+    // or keep it but be careful.
     let error_message = state.login_screen.error_message.clone();
     let form = &mut state.login_screen.create_vault_form;
 
@@ -843,16 +848,11 @@ fn render_create_vault_form(
         CreateVaultStep::Step3 => {
             fields_to_show.push((
                 "Number of Recovery Questions (0-3)",
-                Some(&form.recovery_questions_count),
+                None,
                 CreateVaultField::RecoveryQuestionsCount,
             ));
 
-            let q_count = form
-                .recovery_questions_count
-                .text
-                .trim()
-                .parse::<usize>()
-                .unwrap_or(0);
+            let q_count = form.recovery_questions_count;
 
             if q_count > 0 {
                 fields_to_show.push((
@@ -1113,6 +1113,24 @@ fn render_create_vault_form(
             .block(input_block.clone());
 
             frame.render_widget(method_para, layout[current_layout_idx]);
+        } else if *field_enum == CreateVaultField::RecoveryQuestionsCount {
+            let count_text = if is_focused {
+                format!("< {} >", form.recovery_questions_count)
+            } else {
+                form.recovery_questions_count.to_string()
+            };
+
+            let count_para = Paragraph::new(count_text)
+                .alignment(Alignment::Center)
+                .style(if is_focused {
+                    Style::default()
+                        .fg(theme.accent)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(theme.fg)
+                })
+                .block(input_block.clone());
+            frame.render_widget(count_para, layout[current_layout_idx]);
         }
 
         let field_idx = match field_enum {
@@ -1322,12 +1340,7 @@ fn render_footer(
             "Create"
         } else if form.step == CreateVaultStep::Step3
             && form.focused_field == CreateVaultField::RecoveryQuestionsCount {
-                let q_count = form
-                    .recovery_questions_count
-                    .text
-                    .trim()
-                    .parse::<usize>()
-                    .unwrap_or(0);
+                let q_count = form.recovery_questions_count;
                 if q_count == 0 {
                     "Create"
                 } else {
@@ -1335,12 +1348,7 @@ fn render_footer(
                 }
         } else if form.step == CreateVaultStep::Step3
             && form.focused_field == CreateVaultField::RecoveryAnswer1 {
-                let q_count = form
-                    .recovery_questions_count
-                    .text
-                    .trim()
-                    .parse::<usize>()
-                    .unwrap_or(0);
+                let q_count = form.recovery_questions_count;
                 if q_count == 1 {
                     "Create"
                 } else {
@@ -1348,12 +1356,7 @@ fn render_footer(
                 }
         } else if form.step == CreateVaultStep::Step3
             && form.focused_field == CreateVaultField::RecoveryAnswer2 {
-                let q_count = form
-                    .recovery_questions_count
-                    .text
-                    .trim()
-                    .parse::<usize>()
-                    .unwrap_or(0);
+                let q_count = form.recovery_questions_count;
                 if q_count == 2 {
                     "Create"
                 } else {

@@ -766,19 +766,19 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
         }
 
         Message::InputLeft => {
-            if state.screen == Screen::Login
-                && state.login_screen.creating_vault
-                && state.login_screen.create_vault_form.focused_field
-                    == crate::ui::screens::login::CreateVaultField::EncryptionMethod
-            {
-                let methods = crate::crypto::EncryptionMethod::all();
-                let current = state.login_screen.create_vault_form.encryption_method;
-                if let Some(idx) = methods.iter().position(|&m| m == current) {
-                    let next_idx = if idx == 0 { methods.len() - 1 } else { idx - 1 };
-                    state.login_screen.create_vault_form.encryption_method = methods[next_idx];
-                }
-            } else if state.screen == Screen::Login && state.login_screen.creating_vault {
-                if let Some(buf) = state.login_screen.create_vault_form.active_input_mut() {
+            if state.screen == Screen::Login && state.login_screen.creating_vault {
+                let focused_field = state.login_screen.create_vault_form.focused_field;
+                if focused_field == crate::ui::screens::login::CreateVaultField::EncryptionMethod {
+                    let methods = crate::crypto::EncryptionMethod::all();
+                    let current = state.login_screen.create_vault_form.encryption_method;
+                    if let Some(idx) = methods.iter().position(|&m| m == current) {
+                        let next_idx = if idx == 0 { methods.len() - 1 } else { idx - 1 };
+                        state.login_screen.create_vault_form.encryption_method = methods[next_idx];
+                    }
+                } else if focused_field == crate::ui::screens::login::CreateVaultField::RecoveryQuestionsCount {
+                    let current = state.login_screen.create_vault_form.recovery_questions_count;
+                    state.login_screen.create_vault_form.recovery_questions_count = if current == 0 { 3 } else { current - 1 };
+                } else if let Some(buf) = state.login_screen.create_vault_form.active_input_mut() {
                     buf.move_left();
                 }
             } else {
@@ -801,19 +801,19 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
         }
 
         Message::InputRight => {
-            if state.screen == Screen::Login
-                && state.login_screen.creating_vault
-                && state.login_screen.create_vault_form.focused_field
-                    == crate::ui::screens::login::CreateVaultField::EncryptionMethod
-            {
-                let methods = crate::crypto::EncryptionMethod::all();
-                let current = state.login_screen.create_vault_form.encryption_method;
-                if let Some(idx) = methods.iter().position(|&m| m == current) {
-                    let next_idx = (idx + 1) % methods.len();
-                    state.login_screen.create_vault_form.encryption_method = methods[next_idx];
-                }
-            } else if state.screen == Screen::Login && state.login_screen.creating_vault {
-                if let Some(buf) = state.login_screen.create_vault_form.active_input_mut() {
+            if state.screen == Screen::Login && state.login_screen.creating_vault {
+                let focused_field = state.login_screen.create_vault_form.focused_field;
+                if focused_field == crate::ui::screens::login::CreateVaultField::EncryptionMethod {
+                    let methods = crate::crypto::EncryptionMethod::all();
+                    let current = state.login_screen.create_vault_form.encryption_method;
+                    if let Some(idx) = methods.iter().position(|&m| m == current) {
+                        let next_idx = (idx + 1) % methods.len();
+                        state.login_screen.create_vault_form.encryption_method = methods[next_idx];
+                    }
+                } else if focused_field == crate::ui::screens::login::CreateVaultField::RecoveryQuestionsCount {
+                    let current = state.login_screen.create_vault_form.recovery_questions_count;
+                    state.login_screen.create_vault_form.recovery_questions_count = (current + 1) % 4;
+                } else if let Some(buf) = state.login_screen.create_vault_form.active_input_mut() {
                     buf.move_right();
                 }
             } else {
@@ -883,7 +883,7 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
                         return update(state, Message::FormNextField);
                     }
                 } else if form.step == crate::ui::screens::login::CreateVaultStep::Step3 {
-                    let q_count = form.recovery_questions_count.text.trim().parse::<usize>().unwrap_or(0);
+                    let q_count = form.recovery_questions_count;
                     let is_last = (q_count == 0 && current_field == crate::ui::screens::login::CreateVaultField::RecoveryQuestionsCount) ||
                                   (q_count == 1 && current_field == crate::ui::screens::login::CreateVaultField::RecoveryAnswer1) ||
                                   (q_count == 2 && current_field == crate::ui::screens::login::CreateVaultField::RecoveryAnswer2) ||
@@ -1086,11 +1086,7 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
                 let q_count = state
                     .login_screen
                     .create_vault_form
-                    .recovery_questions_count
-                    .text
-                    .trim()
-                    .parse::<usize>()
-                    .unwrap_or(0);
+                    .recovery_questions_count;
                 let use_keyfile_text = state
                     .login_screen
                     .create_vault_form
@@ -1122,11 +1118,7 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
                 let q_count = state
                     .login_screen
                     .create_vault_form
-                    .recovery_questions_count
-                    .text
-                    .trim()
-                    .parse::<usize>()
-                    .unwrap_or(0);
+                    .recovery_questions_count;
                 let use_keyfile_text = state
                     .login_screen
                     .create_vault_form
@@ -2168,8 +2160,7 @@ fn handle_create_vault_submit(state: &mut AppState) -> Effect {
         return Effect::none();
     }
 
-    let q_count_str = form.recovery_questions_count.text.clone();
-    let q_count = q_count_str.trim().parse::<usize>().unwrap_or(0);
+    let q_count = form.recovery_questions_count;
 
     if q_count > 3 {
         state.login_screen.error_message = Some("Maximum 3 security questions allowed".to_string());
