@@ -395,8 +395,8 @@ fn route_edit_form_key(event: KeyEvent) -> Message {
         KeyCode::End => Message::InputEnd,
         KeyCode::Enter => Message::FormSubmit,
         KeyCode::Esc => Message::InputCancel,
-        KeyCode::Tab => Message::FormNextField,
-        KeyCode::BackTab => Message::FormPrevField,
+        KeyCode::Tab | KeyCode::Down => Message::FormNextField,
+        KeyCode::BackTab | KeyCode::Up => Message::FormPrevField,
         _ => Message::Noop,
     }
 }
