@@ -15,7 +15,6 @@ impl ClipboardManager {
     }
 }
 
-
 /// Copy text to clipboard
 pub fn copy_to_clipboard(_text: &str) -> Result<()> {
     // Placeholder - will be implemented in Phase 7

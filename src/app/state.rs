@@ -421,16 +421,18 @@ impl FloatingWindow {
                     .fields
                     .iter()
                     .position(|f| *f == crate::ui::widgets::FormField::DerivationPath)
-                    && let Some(dp) = derivation_path {
-                        form.values[idx] = dp.clone();
-                    }
+                    && let Some(dp) = derivation_path
+                {
+                    form.values[idx] = dp.clone();
+                }
                 if let Some(idx) = form
                     .fields
                     .iter()
                     .position(|f| *f == crate::ui::widgets::FormField::Network)
-                    && let Some(net) = network {
-                        form.values[idx] = net.clone();
-                    }
+                    && let Some(net) = network
+                {
+                    form.values[idx] = net.clone();
+                }
             }
             ItemContent::Password {
                 username,
@@ -442,9 +444,10 @@ impl FloatingWindow {
                     .fields
                     .iter()
                     .position(|f| *f == crate::ui::widgets::FormField::Username)
-                    && let Some(u) = username {
-                        form.values[idx] = u.clone();
-                    }
+                    && let Some(u) = username
+                {
+                    form.values[idx] = u.clone();
+                }
                 if let Some(idx) = form
                     .fields
                     .iter()
@@ -456,9 +459,10 @@ impl FloatingWindow {
                     .fields
                     .iter()
                     .position(|f| *f == crate::ui::widgets::FormField::Url)
-                    && let Some(u) = url {
-                        form.values[idx] = u.clone();
-                    }
+                    && let Some(u) = url
+                {
+                    form.values[idx] = u.clone();
+                }
             }
             ItemContent::SecureNote { content } => {
                 if let Some(idx) = form
@@ -481,9 +485,10 @@ impl FloatingWindow {
                     .fields
                     .iter()
                     .position(|f| *f == crate::ui::widgets::FormField::Service)
-                    && let Some(s) = service {
-                        form.values[idx] = s.clone();
-                    }
+                    && let Some(s) = service
+                {
+                    form.values[idx] = s.clone();
+                }
             }
             ItemContent::Totp { issuer, account_name, secret } => {
                 if let Some(idx) = form
@@ -525,9 +530,9 @@ impl FloatingWindow {
                 .fields
                 .iter()
                 .position(|f| *f == crate::ui::widgets::FormField::Notes)
-            {
-                form.values[idx] = notes.clone();
-            }
+        {
+            form.values[idx] = notes.clone();
+        }
 
         Self::EditItem {
             item_id: item.id,

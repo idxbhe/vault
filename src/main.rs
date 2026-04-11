@@ -162,6 +162,41 @@ fn handle_effect_result(app: &mut App, result: EffectResult) {
             );
         }
 
+        EffectResult::VaultCreated {
+            vault,
+            path,
+            vault_name,
+            key,
+            salt,
+            has_keyfile,
+            encryption_method,
+            recovery_metadata,
+            keyfile_message,
+        } => {
+            app.state_mut().registry.add_or_update(&path, &vault_name);
+            if let Err(e) = app.state_mut().registry.save() {
+                app.state_mut().ui_state.notify(
+                    format!("Vault created, but failed to update registry: {}", e),
+                    vault::app::NotificationLevel::Warning,
+                );
+            }
+            if let Some(msg) = keyfile_message {
+                app.state_mut()
+                    .ui_state
+                    .notify(msg, vault::app::NotificationLevel::Info);
+            }
+
+            app.handle_vault_created(
+                vault,
+                path,
+                key,
+                salt,
+                has_keyfile,
+                encryption_method,
+                recovery_metadata,
+            );
+        }
+
         EffectResult::VaultSaved => {
             let pending_lock = {
                 let state = app.state_mut();

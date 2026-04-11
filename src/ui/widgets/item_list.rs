@@ -37,11 +37,11 @@ impl ItemListState {
             .iter()
             .filter(|item| {
                 // Apply filters
-                if let Some(kind) = filter.kind {
-                    if item.kind != kind {
-                        return false;
-                    }
-                    }
+                if let Some(kind) = filter.kind
+                    && item.kind != kind
+                {
+                    return false;
+                }
                 if !filter.tags.is_empty() && !filter.tags.iter().any(|t| item.tags.contains(t)) {
                     return false;
                 }

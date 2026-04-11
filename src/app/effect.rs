@@ -10,8 +10,7 @@ use crate::crypto::SecureString;
 use crate::domain::Vault;
 
 /// Side effects that need to be executed
-#[derive(Debug)]
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub enum Effect {
     /// No effect
     #[default]
@@ -20,6 +19,15 @@ pub enum Effect {
     Batch(Vec<Effect>),
 
     // === File I/O ===
+    /// Create a new vault and its vault file (heavy crypto/IO)
+    CreateVault {
+        vault_name: String,
+        password: SecureString,
+        use_keyfile: bool,
+        keyfile_path: String,
+        encryption_method: crate::crypto::EncryptionMethod,
+        draft_qs: Vec<(String, String)>,
+    },
     /// Read a vault file
     ReadVaultFile {
         path: PathBuf,
@@ -35,6 +43,18 @@ pub enum Effect {
         has_keyfile: bool,
         encryption_method: crate::crypto::EncryptionMethod,
         recovery_metadata: Option<crate::domain::RecoveryMetadata>,
+    },
+    /// Vault was created successfully
+    VaultCreated {
+        vault: crate::domain::Vault,
+        path: PathBuf,
+        vault_name: String,
+        key: [u8; 32],
+        salt: [u8; 32],
+        has_keyfile: bool,
+        encryption_method: crate::crypto::EncryptionMethod,
+        recovery_metadata: Option<crate::domain::RecoveryMetadata>,
+        keyfile_message: Option<String>,
     },
     /// Read application config
     ReadConfig,
@@ -106,7 +126,6 @@ impl Effect {
     }
 }
 
-
 /// Result of executing an effect
 #[derive(Debug)]
 pub enum EffectResult {
@@ -121,6 +140,18 @@ pub enum EffectResult {
         has_keyfile: bool,
         encryption_method: crate::crypto::EncryptionMethod,
         recovery_metadata: Option<crate::domain::RecoveryMetadata>,
+    },
+    /// Vault was created successfully
+    VaultCreated {
+        vault: crate::domain::Vault,
+        path: PathBuf,
+        vault_name: String,
+        key: [u8; 32],
+        salt: [u8; 32],
+        has_keyfile: bool,
+        encryption_method: crate::crypto::EncryptionMethod,
+        recovery_metadata: Option<crate::domain::RecoveryMetadata>,
+        keyfile_message: Option<String>,
     },
     /// Vault was saved successfully
     VaultSaved,
