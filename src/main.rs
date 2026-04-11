@@ -109,6 +109,14 @@ fn run_app<B: ratatui::backend::Backend>(
                     }
                     Effect::None => {}
                     effect => {
+                        // Force a render before executing potentially blocking effects
+                        // like ReadVaultFile to ensure "loading" overlays are shown.
+                        if app.state().ui_state.is_loading() {
+                            terminal.draw(|f| {
+                                app.render(f);
+                            })?;
+                        }
+
                         let result = runtime.execute(effect);
                         handle_effect_result(app, result);
                     }
