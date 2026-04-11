@@ -187,8 +187,6 @@ pub enum Message {
     NextCategory,
     /// Select previous category
     PrevCategory,
-    /// Scroll category bar
-    ScrollCategory(i16),
 
     // === Settings ===
     /// Update configuration

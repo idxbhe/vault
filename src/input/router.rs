@@ -579,8 +579,8 @@ fn handle_clickable_element(
             Message::SetKindFilter(*kind)
         }
 
-        ClickableElement::CategoryScrollLeft => Message::ScrollCategory(-1),
-        ClickableElement::CategoryScrollRight => Message::ScrollCategory(1),
+        ClickableElement::CategoryScrollLeft => Message::PrevCategory,
+        ClickableElement::CategoryScrollRight => Message::NextCategory,
 
         ClickableElement::SearchResult(index) => {
             // Clicking a search result selects it
