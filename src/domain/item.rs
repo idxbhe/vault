@@ -454,12 +454,8 @@ fn generate_totp_code(secret: &str) -> String {
         .to_bytes()
         .unwrap_or_else(|_| secret.as_bytes().to_vec());
 
-    match totp_rs::TOTP::new(totp_rs::Algorithm::SHA1, 6, 1, 30, secret_bytes) {
-        Ok(totp) => totp
-            .generate_current()
-            .unwrap_or_else(|_| secret.to_string()),
-        Err(_) => secret.to_string(),
-    }
+    let totp = totp_rs::TOTP::new_unchecked(totp_rs::Algorithm::SHA1, 6, 1, 30, secret_bytes);
+    totp.generate_current().unwrap_or_else(|_| secret.to_string())
 }
 
 /// Type-specific content for items
