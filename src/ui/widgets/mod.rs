@@ -3,6 +3,7 @@
 //! Components that can be composed to build screens.
 
 pub mod button;
+pub mod category_bar;
 pub mod edit_form;
 pub mod help;
 pub mod item_detail;
@@ -13,6 +14,7 @@ pub mod search_dialog;
 pub mod statusline;
 
 pub use button::{ButtonRegion, ButtonStyle, render_button_row, render_keyboard_hints};
+pub use category_bar::{CategoryBarClickRegions, render as render_category_bar};
 pub use edit_form::{EditFormState, FormClickRegions, FormField, render as render_edit_form};
 pub use help::render as render_help;
 pub use item_detail::render as render_item_detail;

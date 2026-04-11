@@ -9,7 +9,7 @@ use ratatui::{
 
 use crate::app::{AppState, Pane};
 use crate::ui::theme::ThemePalette;
-use crate::ui::widgets::{item_detail, item_list, statusline};
+use crate::ui::widgets::{category_bar, item_detail, item_list, statusline};
 
 /// State for the main screen
 #[derive(Debug, Default)]
@@ -33,14 +33,31 @@ pub fn render(
 ) {
     let area = frame.area();
 
-    // Main layout: content area + statusline
+    // Main layout: category bar + content area + statusline
     let main_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
+            Constraint::Length(2), // Category bar
             Constraint::Min(10),   // Content
             Constraint::Length(1), // Statusline
         ])
         .split(area);
+
+    // Category bar
+    let click_regions = category_bar::render(
+        frame,
+        main_chunks[0],
+        state.ui_state.filter.kind,
+        theme,
+    );
+
+    // Register category bar clicks
+    for (kind, region) in click_regions.option_regions {
+        state.ui_state.layout_regions.register_clickable(
+            region,
+            crate::input::mouse::ClickableElement::CategoryOption(kind),
+        );
+    }
 
     // Content layout: list | detail
     let content_chunks = Layout::default()
@@ -49,7 +66,7 @@ pub fn render(
             Constraint::Percentage(35), // List
             Constraint::Percentage(65), // Detail
         ])
-        .split(main_chunks[0]);
+        .split(main_chunks[1]);
 
     // Register pane regions for mouse clicks
     state.ui_state.register_region(
@@ -87,7 +104,7 @@ pub fn render(
     item_detail::render(frame, content_chunks[1], state, detail_focused, theme);
 
     // Render statusline
-    statusline::render(frame, main_chunks[1], state, theme);
+    statusline::render(frame, main_chunks[2], state, theme);
 
     // Render floating windows if any
     // Clone the window to avoid borrow conflict

@@ -39,6 +39,10 @@ pub enum KeyAction {
     Quit,
     ForceQuit,
 
+    // Category Selector
+    NextCategory,
+    PrevCategory,
+
     // History
     Undo,
     Redo,
@@ -130,8 +134,12 @@ impl Default for KeybindingConfig {
 
         // Modes
         bindings.insert(KeyCombo::plain(KeyCode::Char('?')), KeyAction::Help);
-        bindings.insert(KeyCombo::plain(KeyCode::Char(',')), KeyAction::Settings);
+        bindings.insert(KeyCombo::shift(KeyCode::Char('S')), KeyAction::Settings);
         bindings.insert(KeyCombo::ctrl(KeyCode::Char('l')), KeyAction::Lock);
+
+        // Category Selector
+        bindings.insert(KeyCombo::plain(KeyCode::Char(',')), KeyAction::PrevCategory);
+        bindings.insert(KeyCombo::plain(KeyCode::Char('.')), KeyAction::NextCategory);
         bindings.insert(KeyCombo::plain(KeyCode::Char('q')), KeyAction::Quit);
         bindings.insert(KeyCombo::ctrl(KeyCode::Char('q')), KeyAction::ForceQuit);
         bindings.insert(KeyCombo::ctrl(KeyCode::Char('c')), KeyAction::ForceQuit);

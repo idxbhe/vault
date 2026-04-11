@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use uuid::Uuid;
 
-use crate::domain::Item;
+use crate::domain::{Item, ItemKind};
 use crate::ui::screens::{
     ChangePasswordAction, ChangePasswordStep, RecoveryQuestionDraft, RecoverySetupAction,
     RecoverySetupStep, SecurityActionState, SettingKind, apply_setting, get_current_sub_index,
@@ -1361,6 +1361,30 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
         // === Filter ===
         Message::SetKindFilter(kind) => {
             state.ui_state.filter.kind = kind;
+            Effect::none()
+        }
+
+        Message::NextCategory => {
+            let mut kinds = vec![None];
+            kinds.extend(ItemKind::all().iter().map(|k| Some(*k)));
+
+            let current_idx = kinds.iter().position(|k| *k == state.ui_state.filter.kind).unwrap_or(0);
+            let next_idx = (current_idx + 1) % kinds.len();
+            state.ui_state.filter.kind = kinds[next_idx];
+            Effect::none()
+        }
+
+        Message::PrevCategory => {
+            let mut kinds = vec![None];
+            kinds.extend(ItemKind::all().iter().map(|k| Some(*k)));
+
+            let current_idx = kinds.iter().position(|k| *k == state.ui_state.filter.kind).unwrap_or(0);
+            let prev_idx = if current_idx == 0 {
+                kinds.len() - 1
+            } else {
+                current_idx - 1
+            };
+            state.ui_state.filter.kind = kinds[prev_idx];
             Effect::none()
         }
 

@@ -285,6 +285,10 @@ fn action_to_message(state: &AppState, action: KeyAction) -> Message {
         KeyAction::Undo => Message::Undo,
         KeyAction::Redo => Message::Redo,
 
+        // Category
+        KeyAction::NextCategory => Message::NextCategory,
+        KeyAction::PrevCategory => Message::PrevCategory,
+
         // Focus
         KeyAction::FocusList => Message::FocusPane(Pane::List),
         KeyAction::FocusDetail => Message::FocusPane(Pane::Detail),
@@ -568,6 +572,11 @@ fn handle_clickable_element(
         ClickableElement::KindOption(index) => {
             // Clicking a kind option selects it
             Message::KindSelectorSelect(*index)
+        }
+
+        ClickableElement::CategoryOption(kind) => {
+            // Clicking a category sets the kind filter
+            Message::SetKindFilter(*kind)
         }
 
         ClickableElement::SearchResult(index) => {

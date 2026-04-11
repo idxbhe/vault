@@ -183,6 +183,10 @@ pub enum Message {
     ToggleFavoritesFilter,
     /// Clear all filters
     ClearFilters,
+    /// Select next category
+    NextCategory,
+    /// Select previous category
+    PrevCategory,
 
     // === Settings ===
     /// Update configuration
