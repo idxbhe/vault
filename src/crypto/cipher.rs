@@ -1,6 +1,7 @@
 //! AES-256-GCM authenticated encryption
 
 use chacha20poly1305::ChaCha20Poly1305;
+use aes_gcm_siv::Aes256GcmSiv;
 use aes_gcm::{
     Aes256Gcm, Nonce,
     aead::{Aead, KeyInit},
@@ -21,12 +22,17 @@ pub enum EncryptionMethod {
     #[default]
     Aes256Gcm,
     ChaCha20Poly1305,
+    Aes256GcmSiv,
 }
 
 impl EncryptionMethod {
     /// All available encryption methods.
     pub fn all() -> &'static [EncryptionMethod] {
-        &[EncryptionMethod::Aes256Gcm, EncryptionMethod::ChaCha20Poly1305]
+        &[
+            EncryptionMethod::Aes256Gcm,
+            EncryptionMethod::ChaCha20Poly1305,
+            EncryptionMethod::Aes256GcmSiv,
+        ]
     }
 
     /// Display name for UI.
@@ -34,6 +40,7 @@ impl EncryptionMethod {
         match self {
             EncryptionMethod::Aes256Gcm => "AES-256-GCM",
             EncryptionMethod::ChaCha20Poly1305 => "ChaCha20-Poly1305",
+            EncryptionMethod::Aes256GcmSiv => "AES-256-GCM-SIV",
         }
     }
 
@@ -42,6 +49,7 @@ impl EncryptionMethod {
         match self {
             EncryptionMethod::Aes256Gcm => "High",
             EncryptionMethod::ChaCha20Poly1305 => "High",
+            EncryptionMethod::Aes256GcmSiv => "High (Misuse Resistant)",
         }
     }
 
@@ -50,6 +58,7 @@ impl EncryptionMethod {
         match self {
             EncryptionMethod::Aes256Gcm => "Slow Decryption",
             EncryptionMethod::ChaCha20Poly1305 => "Fast Decryption",
+            EncryptionMethod::Aes256GcmSiv => "Slow Decryption",
         }
     }
 
@@ -154,6 +163,41 @@ pub fn decrypt(payload: &EncryptedPayload, key: &[u8; 32]) -> Result<Vec<u8>> {
 
 /// Encrypt plaintext using the selected encryption method.
 
+/// Encrypt plaintext using AES-256-GCM-SIV
+pub fn encrypt_aes_gcm_siv(
+    plaintext: &[u8],
+    key: &[u8; 32],
+    salt: [u8; 32],
+    argon2_params: Argon2Params,
+) -> Result<EncryptedPayload> {
+    let cipher = Aes256GcmSiv::new_from_slice(key).map_err(|e| Error::Encryption(e.to_string()))?;
+
+    let nonce_bytes = generate_nonce();
+    let nonce = aes_gcm_siv::Nonce::from_slice(&nonce_bytes);
+
+    let ciphertext = cipher
+        .encrypt(nonce, plaintext)
+        .map_err(|e| Error::Encryption(e.to_string()))?;
+
+    Ok(EncryptedPayload::new(
+        ciphertext,
+        nonce_bytes,
+        salt,
+        argon2_params,
+    ))
+}
+
+/// Decrypt ciphertext using AES-256-GCM-SIV
+pub fn decrypt_aes_gcm_siv(payload: &EncryptedPayload, key: &[u8; 32]) -> Result<Vec<u8>> {
+    let cipher = Aes256GcmSiv::new_from_slice(key).map_err(|_| Error::Decryption)?;
+
+    let nonce = aes_gcm_siv::Nonce::from_slice(&payload.nonce);
+
+    cipher
+        .decrypt(nonce, payload.ciphertext.as_slice())
+        .map_err(|_| Error::Decryption)
+}
+
 /// Encrypt plaintext using ChaCha20-Poly1305
 pub fn encrypt_chacha(
     plaintext: &[u8],
@@ -199,6 +243,7 @@ pub fn encrypt_with_method(
     match method {
         EncryptionMethod::Aes256Gcm => encrypt(plaintext, key, salt, argon2_params),
         EncryptionMethod::ChaCha20Poly1305 => encrypt_chacha(plaintext, key, salt, argon2_params),
+        EncryptionMethod::Aes256GcmSiv => encrypt_aes_gcm_siv(plaintext, key, salt, argon2_params),
     }
 }
 
@@ -211,6 +256,7 @@ pub fn decrypt_with_method(
     match method {
         EncryptionMethod::Aes256Gcm => decrypt(payload, key),
         EncryptionMethod::ChaCha20Poly1305 => decrypt_chacha(payload, key),
+        EncryptionMethod::Aes256GcmSiv => decrypt_aes_gcm_siv(payload, key),
     }
 }
 
