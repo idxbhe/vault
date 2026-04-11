@@ -927,7 +927,7 @@ fn render_create_vault_form(
         } else if *field_enum == CreateVaultField::UseKeyfile
             || *field_enum == CreateVaultField::RecoveryQuestionsCount
         {
-            total_required_height += 5;
+            total_required_height += 6; // Accounts for 2 text lines and 1 input block height
         } else {
             total_required_height += 3;
         }
@@ -956,7 +956,7 @@ fn render_create_vault_form(
         for i in form.scroll_offset as usize..fields_to_show.len() {
             let h = match fields_to_show[i].2 {
                 CreateVaultField::EncryptionMethod => 4,
-                CreateVaultField::UseKeyfile | CreateVaultField::RecoveryQuestionsCount => 5,
+                CreateVaultField::UseKeyfile | CreateVaultField::RecoveryQuestionsCount => 6,
                 _ => 3,
             };
             if current_h + h <= inner_height {
@@ -1037,8 +1037,10 @@ fn render_create_vault_form(
             } else {
                 constraints.push(Constraint::Length(3));
             }
-        } else {
-            constraints.push(Constraint::Length(3));
+        } else if i == fields_to_show.len() {
+             constraints.push(Constraint::Length(1)); // Nav row
+        } else if i == fields_to_show.len() + 1 {
+             constraints.push(Constraint::Length(2)); // Error padding
         }
     }
     constraints.push(Constraint::Min(0));
@@ -1086,15 +1088,19 @@ fn render_create_vault_form(
 
         if let Some(buffer) = buffer_opt {
             if *field_enum == CreateVaultField::UseKeyfile {
-                let desc_para = Paragraph::new(Span::styled(
-                    "A keyfile adds an extra layer of security.",
-                    Style::default()
-                        .fg(theme.fg_muted)
-                        .add_modifier(Modifier::ITALIC),
-                ));
+                let desc_para = Paragraph::new(vec![
+                    Line::from(Span::styled(
+                        "A keyfile is an additional secret file required to unlock the vault.",
+                        Style::default().fg(theme.fg_muted).add_modifier(Modifier::ITALIC),
+                    )),
+                    Line::from(Span::styled(
+                        "Warning: If the keyfile is lost, the vault cannot be recovered even with the password.",
+                        Style::default().fg(theme.warning).add_modifier(Modifier::ITALIC),
+                    ))
+                ]);
                 let area = layout[current_layout_idx];
-                let desc_area = Rect::new(area.x, area.y, area.width, 1);
-                let input_area = Rect::new(area.x, area.y + 1, area.width, 3);
+                let desc_area = Rect::new(area.x, area.y, area.width, 2);
+                let input_area = Rect::new(area.x, area.y + 2, area.width, 3);
 
                 frame.render_widget(desc_para, desc_area);
 
@@ -1109,15 +1115,19 @@ fn render_create_vault_form(
                     frame.set_cursor_position((cursor_x, cursor_y));
                 }
             } else if *field_enum == CreateVaultField::RecoveryQuestionsCount {
-                let desc_para = Paragraph::new(Span::styled(
-                    "Provide a fallback method to recover access.",
-                    Style::default()
-                        .fg(theme.fg_muted)
-                        .add_modifier(Modifier::ITALIC),
-                ));
+                let desc_para = Paragraph::new(vec![
+                    Line::from(Span::styled(
+                        "Security questions provide a fallback method to recover the password if forgotten.",
+                        Style::default().fg(theme.fg_muted).add_modifier(Modifier::ITALIC),
+                    )),
+                    Line::from(Span::styled(
+                        "Note: Answers must be entered exactly as provided during recovery.",
+                        Style::default().fg(theme.warning).add_modifier(Modifier::ITALIC),
+                    ))
+                ]);
                 let area = layout[current_layout_idx];
-                let desc_area = Rect::new(area.x, area.y, area.width, 1);
-                let input_area = Rect::new(area.x, area.y + 1, area.width, 3);
+                let desc_area = Rect::new(area.x, area.y, area.width, 2);
+                let input_area = Rect::new(area.x, area.y + 2, area.width, 3);
 
                 frame.render_widget(desc_para, desc_area);
 
