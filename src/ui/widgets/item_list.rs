@@ -37,10 +37,16 @@ impl ItemListState {
             .iter()
             .filter(|item| {
                 // Apply filters
-                if let Some(kind) = filter.kind
-                    && item.kind != kind
-                {
-                    return false;
+                if let Some(kind) = filter.kind {
+                    let mut matches_kind = item.kind == kind;
+                    if !matches_kind && kind == ItemKind::Totp && item.kind == ItemKind::Password {
+                        if let crate::domain::ItemContent::Password { totp_secret: Some(_), .. } = &item.content {
+                            matches_kind = true;
+                        }
+                    }
+                    if !matches_kind {
+                        return false;
+                    }
                 }
                 if !filter.tags.is_empty() && !filter.tags.iter().any(|t| item.tags.contains(t)) {
                     return false;
