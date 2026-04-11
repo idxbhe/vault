@@ -655,7 +655,7 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
                 return update(
                     state,
                     Message::CopyToClipboard {
-                        content: content.to_string(),
+                        content: content,
                         is_sensitive: true,
                     },
                 );
@@ -713,22 +713,6 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
         // === UI ===
         Message::ToggleContentReveal => {
             state.ui_state.content_revealed = !state.ui_state.content_revealed;
-            if state.ui_state.content_revealed {
-                if let Some(item) = state.selected_item() {
-                    let fields = item.get_fields();
-                    if let Some((_, totp_code, _, _)) =
-                        fields.iter().find(|(label, _, _, _)| label == "TOTP Code")
-                    {
-                        return update(
-                            state,
-                            Message::CopyToClipboard {
-                                content: totp_code.clone(),
-                                is_sensitive: true,
-                            },
-                        );
-                    }
-                }
-            }
             Effect::none()
         }
 

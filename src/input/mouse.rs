@@ -104,6 +104,8 @@ pub enum ClickableElement {
     ListItem(Uuid),
     /// A form field (field index)
     FormField(usize),
+    /// A detail field (field index)
+    DetailField(usize),
     /// A kind option in selector (index)
     KindOption(usize),
     /// A search result (index)

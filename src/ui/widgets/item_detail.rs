@@ -71,6 +71,21 @@ pub fn render(
     frame.render_widget(block, area);
     frame.render_widget(paragraph, chunks[0]);
 
+    // Register clickable fields
+    let fields = item.get_fields();
+    let mut current_y = chunks[0].y + 2; // header + blank line
+    current_y = current_y.saturating_sub(state.ui_state.detail_scroll_offset as u16);
+
+    for (idx, _) in fields.iter().enumerate() {
+        if current_y >= chunks[0].y && current_y < chunks[0].y + chunks[0].height {
+            state.ui_state.layout_regions.register_clickable(
+                crate::input::mouse::ClickRegion::new(chunks[0].x, current_y, chunks[0].width, 1),
+                crate::input::mouse::ClickableElement::DetailField(idx),
+            );
+        }
+        current_y += 1;
+    }
+
     // Render action buttons (now includes keyboard hints in labels)
     render_action_buttons(frame, chunks[1], state, revealed, theme);
 }
@@ -190,8 +205,12 @@ fn build_content_section<'a>(
     for (idx, (label, value, is_sensitive, _)) in fields.iter().enumerate() {
         let is_selected = is_focused && idx == selected_field_idx;
 
-        let display_value = if *is_sensitive && !revealed {
-            mask::mask_content(value)
+        let display_value = if *is_sensitive {
+            if !revealed || (is_focused && idx != selected_field_idx) {
+                mask::mask_content(value)
+            } else {
+                value.to_string()
+            }
         } else {
             value.to_string()
         };

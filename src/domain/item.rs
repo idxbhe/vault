@@ -308,19 +308,19 @@ impl Item {
     }
 
     /// Get the primary sensitive content for copying
-    pub fn get_copyable_content(&self) -> Option<&str> {
+    pub fn get_copyable_content(&self) -> Option<String> {
         match &self.content {
-            ItemContent::Generic { value } => Some(value),
-            ItemContent::CryptoSeed { seed_phrase, .. } => Some(seed_phrase),
-            ItemContent::Password { password, .. } => Some(password),
-            ItemContent::SecureNote { content } => Some(content),
-            ItemContent::ApiKey { key, .. } => Some(key),
-            ItemContent::Totp { secret, .. } => Some(secret),
+            ItemContent::Generic { value } => Some(value.clone()),
+            ItemContent::CryptoSeed { seed_phrase, .. } => Some(seed_phrase.clone()),
+            ItemContent::Password { password, .. } => Some(password.clone()),
+            ItemContent::SecureNote { content } => Some(content.clone()),
+            ItemContent::ApiKey { key, .. } => Some(key.clone()),
+            ItemContent::Totp { secret, .. } => Some(generate_totp_code(secret)),
             ItemContent::Custom { fields } => fields
                 .iter()
                 .find(|f| f.field_type == CustomFieldType::Secret)
                 .or_else(|| fields.first())
-                .map(|f| f.value.as_str()),
+                .map(|f| f.value.clone()),
         }
     }
 }
@@ -519,7 +519,7 @@ mod tests {
 
         assert_eq!(item.title, "My Secret");
         assert_eq!(item.kind, ItemKind::Generic);
-        assert_eq!(item.get_copyable_content(), Some("super_secret_value"));
+        assert_eq!(item.get_copyable_content(), Some("super_secret_value".to_string()));
     }
 
     #[test]
@@ -569,6 +569,6 @@ mod tests {
         );
 
         assert_eq!(item.kind, ItemKind::Custom);
-        assert_eq!(item.get_copyable_content(), Some("secret-token"));
+        assert_eq!(item.get_copyable_content(), Some("secret-token".to_string()));
     }
 }

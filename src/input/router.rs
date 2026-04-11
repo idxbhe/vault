@@ -593,6 +593,11 @@ fn handle_clickable_element(
             Message::FormFocusField(*index)
         }
 
+        ClickableElement::DetailField(index) => {
+            // Clicking a detail field copies it
+            Message::CopyField(*index)
+        }
+
         ClickableElement::KindOption(index) => {
             // Clicking a kind option selects it
             Message::KindSelectorSelect(*index)
@@ -636,7 +641,10 @@ fn handle_clickable_element(
 
                 // Item detail buttons
                 "reveal" => Message::ToggleContentReveal,
-                "copy" => Message::CopyCurrentItem,
+                "copy" => match state.ui_state.focused_pane {
+                    Pane::Detail => Message::CopyField(state.ui_state.detail_selected_field),
+                    _ => Message::CopyCurrentItem,
+                },
                 "edit" => {
                     if let Some(item) = state.selected_item() {
                         Message::OpenFloatingWindow(
