@@ -334,11 +334,12 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
         // === Item Operations ===
         Message::SelectItem(id) => {
             if let Some(ref mut vs) = state.vault_state
-                && vs.vault.get_item(id).is_some() {
-                    vs.selected_item_id = Some(id);
-                    state.ui_state.detail_scroll_offset = 0;
-                    state.ui_state.detail_selected_field = 0;
-                }
+                && vs.vault.get_item(id).is_some()
+            {
+                vs.selected_item_id = Some(id);
+                state.ui_state.detail_scroll_offset = 0;
+                state.ui_state.detail_selected_field = 0;
+            }
             Effect::none()
         }
 
@@ -679,7 +680,9 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
                 // Then we apply it, and then modify the focused field manually in state since EditItem form is created
                 let eff = update(state, msg);
 
-                if let Some(FloatingWindow::EditItem { ref mut form, .. }) = state.ui_state.floating_window {
+                if let Some(FloatingWindow::EditItem { ref mut form, .. }) =
+                    state.ui_state.floating_window
+                {
                     if let Some(target) = target_form_field {
                         if let Some(pos) = form.fields.iter().position(|f| *f == target) {
                             form.focused_field = pos;
@@ -815,9 +818,17 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
                         let next_idx = if idx == 0 { methods.len() - 1 } else { idx - 1 };
                         state.login_screen.create_vault_form.encryption_method = methods[next_idx];
                     }
-                } else if focused_field == crate::ui::screens::login::CreateVaultField::RecoveryQuestionsCount {
-                    let current = state.login_screen.create_vault_form.recovery_questions_count;
-                    state.login_screen.create_vault_form.recovery_questions_count = if current == 0 { 3 } else { current - 1 };
+                } else if focused_field
+                    == crate::ui::screens::login::CreateVaultField::RecoveryQuestionsCount
+                {
+                    let current = state
+                        .login_screen
+                        .create_vault_form
+                        .recovery_questions_count;
+                    state
+                        .login_screen
+                        .create_vault_form
+                        .recovery_questions_count = if current == 0 { 3 } else { current - 1 };
                 } else if let Some(buf) = state.login_screen.create_vault_form.active_input_mut() {
                     buf.move_left();
                 }
@@ -850,9 +861,17 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
                         let next_idx = (idx + 1) % methods.len();
                         state.login_screen.create_vault_form.encryption_method = methods[next_idx];
                     }
-                } else if focused_field == crate::ui::screens::login::CreateVaultField::RecoveryQuestionsCount {
-                    let current = state.login_screen.create_vault_form.recovery_questions_count;
-                    state.login_screen.create_vault_form.recovery_questions_count = (current + 1) % 4;
+                } else if focused_field
+                    == crate::ui::screens::login::CreateVaultField::RecoveryQuestionsCount
+                {
+                    let current = state
+                        .login_screen
+                        .create_vault_form
+                        .recovery_questions_count;
+                    state
+                        .login_screen
+                        .create_vault_form
+                        .recovery_questions_count = (current + 1) % 4;
                 } else if let Some(buf) = state.login_screen.create_vault_form.active_input_mut() {
                     buf.move_right();
                 }
@@ -905,7 +924,9 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
                 let mut advance_step = false;
 
                 if form.step == crate::ui::screens::login::CreateVaultStep::Step1 {
-                    if current_field == crate::ui::screens::login::CreateVaultField::EncryptionMethod {
+                    if current_field
+                        == crate::ui::screens::login::CreateVaultField::EncryptionMethod
+                    {
                         advance_step = true;
                     } else {
                         return update(state, Message::FormNextField);
@@ -915,8 +936,11 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
                     let use_keyfile = use_keyfile_str.trim().eq_ignore_ascii_case("y")
                         || use_keyfile_str.trim().eq_ignore_ascii_case("yes");
 
-                    if (!use_keyfile && current_field == crate::ui::screens::login::CreateVaultField::UseKeyfile)
-                        || (use_keyfile && current_field == crate::ui::screens::login::CreateVaultField::KeyfilePath)
+                    if (!use_keyfile
+                        && current_field == crate::ui::screens::login::CreateVaultField::UseKeyfile)
+                        || (use_keyfile
+                            && current_field
+                                == crate::ui::screens::login::CreateVaultField::KeyfilePath)
                     {
                         advance_step = true;
                     } else {
@@ -924,10 +948,17 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
                     }
                 } else if form.step == crate::ui::screens::login::CreateVaultStep::Step3 {
                     let q_count = form.recovery_questions_count;
-                    let is_last = (q_count == 0 && current_field == crate::ui::screens::login::CreateVaultField::RecoveryQuestionsCount) ||
-                                  (q_count == 1 && current_field == crate::ui::screens::login::CreateVaultField::RecoveryAnswer1) ||
-                                  (q_count == 2 && current_field == crate::ui::screens::login::CreateVaultField::RecoveryAnswer2) ||
-                                  (current_field == crate::ui::screens::login::CreateVaultField::RecoveryAnswer3);
+                    let is_last = (q_count == 0
+                        && current_field
+                            == crate::ui::screens::login::CreateVaultField::RecoveryQuestionsCount)
+                        || (q_count == 1
+                            && current_field
+                                == crate::ui::screens::login::CreateVaultField::RecoveryAnswer1)
+                        || (q_count == 2
+                            && current_field
+                                == crate::ui::screens::login::CreateVaultField::RecoveryAnswer2)
+                        || (current_field
+                            == crate::ui::screens::login::CreateVaultField::RecoveryAnswer3);
                     if is_last {
                         return handle_create_vault_submit(state);
                     } else {
@@ -1408,7 +1439,10 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
             let mut kinds = vec![None];
             kinds.extend(ItemKind::all().iter().map(|k| Some(*k)));
 
-            let current_idx = kinds.iter().position(|k| *k == state.ui_state.filter.kind).unwrap_or(0);
+            let current_idx = kinds
+                .iter()
+                .position(|k| *k == state.ui_state.filter.kind)
+                .unwrap_or(0);
             let next_idx = (current_idx + 1) % kinds.len();
             state.ui_state.filter.kind = kinds[next_idx];
             Effect::none()
@@ -1418,7 +1452,10 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
             let mut kinds = vec![None];
             kinds.extend(ItemKind::all().iter().map(|k| Some(*k)));
 
-            let current_idx = kinds.iter().position(|k| *k == state.ui_state.filter.kind).unwrap_or(0);
+            let current_idx = kinds
+                .iter()
+                .position(|k| *k == state.ui_state.filter.kind)
+                .unwrap_or(0);
             let prev_idx = if current_idx == 0 {
                 kinds.len() - 1
             } else {
@@ -1596,12 +1633,13 @@ fn select_adjacent_item(state: &mut AppState, delta: i32) {
     };
 
     if let Some(id) = items.get(new_idx)
-        && let Some(ref mut vs) = state.vault_state {
-            if vs.selected_item_id != Some(*id) {
-                vs.selected_item_id = Some(*id);
-                state.ui_state.detail_selected_field = 0;
-            }
+        && let Some(ref mut vs) = state.vault_state
+    {
+        if vs.selected_item_id != Some(*id) {
+            vs.selected_item_id = Some(*id);
+            state.ui_state.detail_selected_field = 0;
         }
+    }
 }
 
 /// Get items filtered by current filter state
@@ -1688,7 +1726,8 @@ fn handle_scroll(state: &mut AppState, direction: ScrollDirection) {
             (&mut state.ui_state.list_scroll_offset, max)
         }
         Pane::Detail => {
-            let max_fields = state.selected_item()
+            let max_fields = state
+                .selected_item()
                 .map(|item| item.get_fields().len().saturating_sub(1))
                 .unwrap_or(0);
 

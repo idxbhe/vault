@@ -1,14 +1,14 @@
 use ratatui::{
     Frame,
-    layout::{Rect},
+    layout::Rect,
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
 };
 
 use crate::domain::ItemKind;
-use crate::ui::theme::ThemePalette;
 use crate::input::mouse::ClickRegion;
+use crate::ui::theme::ThemePalette;
 
 pub struct CategoryBarClickRegions {
     pub option_regions: Vec<(Option<ItemKind>, ClickRegion)>,
@@ -65,7 +65,9 @@ pub fn render(
         let left_padding = if *scroll_offset > 0 { 3 } else { 0 };
         // Assume right padding might be needed if total width > inner_area.width
         let right_padding = if total_width > inner_area.width { 3 } else { 0 };
-        let visible_window_width = inner_area.width.saturating_sub(left_padding + right_padding);
+        let visible_window_width = inner_area
+            .width
+            .saturating_sub(left_padding + right_padding);
 
         if *start_x < *scroll_offset {
             *scroll_offset = *start_x;
@@ -99,7 +101,12 @@ pub fn render(
     let mut current_x = inner_area.x;
 
     if draw_left {
-        spans.push(Span::styled(" < ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)));
+        spans.push(Span::styled(
+            " < ",
+            Style::default()
+                .fg(theme.accent)
+                .add_modifier(Modifier::BOLD),
+        ));
         scroll_left = Some(ClickRegion::new(current_x, inner_area.y, 3, 1));
         current_x += 3;
     }
@@ -119,7 +126,10 @@ pub fn render(
             break;
         }
 
-        let mut item_chars: Vec<char> = display_name.chars().chain(std::iter::repeat(' ').take(2)).collect();
+        let mut item_chars: Vec<char> = display_name
+            .chars()
+            .chain(std::iter::repeat(' ').take(2))
+            .collect();
 
         // Left truncation if item crosses the left boundary of the scroll window
         if item_start < *scroll_offset {
@@ -157,12 +167,7 @@ pub fn render(
 
         option_regions.push((
             kind,
-            ClickRegion::new(
-                current_x,
-                inner_area.y,
-                visible_len,
-                1,
-            )
+            ClickRegion::new(current_x, inner_area.y, visible_len, 1),
         ));
 
         current_x += visible_len;
@@ -174,12 +179,21 @@ pub fn render(
             spans.push(Span::raw(" ".repeat(remaining_width as usize)));
             current_x += remaining_width;
         }
-        spans.push(Span::styled(" > ", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)));
+        spans.push(Span::styled(
+            " > ",
+            Style::default()
+                .fg(theme.accent)
+                .add_modifier(Modifier::BOLD),
+        ));
         scroll_right = Some(ClickRegion::new(current_x, inner_area.y, 3, 1));
     }
 
     let paragraph = Paragraph::new(Line::from(spans)).block(block);
     frame.render_widget(paragraph, area);
 
-    CategoryBarClickRegions { option_regions, scroll_left, scroll_right }
+    CategoryBarClickRegions {
+        option_regions,
+        scroll_left,
+        scroll_right,
+    }
 }

@@ -109,7 +109,13 @@ fn build_detail_lines<'a>(
     lines.push(Line::from(""));
 
     // Content section based on item type
-    lines.extend(build_content_section(item, revealed, theme, selected_field_idx, is_focused));
+    lines.extend(build_content_section(
+        item,
+        revealed,
+        theme,
+        selected_field_idx,
+        is_focused,
+    ));
 
     // Notes section
     if let Some(ref notes) = item.notes {
@@ -200,7 +206,10 @@ fn build_content_section<'a>(
         if is_selected {
             spans.push(Span::styled(
                 " > ",
-                Style::default().fg(theme.accent).bg(bg_color).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(theme.accent)
+                    .bg(bg_color)
+                    .add_modifier(Modifier::BOLD),
             ));
         } else {
             spans.push(Span::styled("   ", Style::default().bg(bg_color)));
@@ -208,7 +217,13 @@ fn build_content_section<'a>(
 
         spans.push(Span::styled(
             format!("{}: ", label),
-            Style::default().fg(if is_selected { theme.fg } else { theme.fg_muted }).bg(bg_color),
+            Style::default()
+                .fg(if is_selected {
+                    theme.fg
+                } else {
+                    theme.fg_muted
+                })
+                .bg(bg_color),
         ));
 
         spans.push(Span::styled(

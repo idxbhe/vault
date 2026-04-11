@@ -60,7 +60,11 @@ impl FormField {
     pub fn is_sensitive(&self) -> bool {
         matches!(
             self,
-            FormField::Password | FormField::SeedPhrase | FormField::ApiKey | FormField::Content | FormField::TotpSecret
+            FormField::Password
+                | FormField::SeedPhrase
+                | FormField::ApiKey
+                | FormField::Content
+                | FormField::TotpSecret
         )
     }
 }

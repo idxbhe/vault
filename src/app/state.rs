@@ -490,14 +490,19 @@ impl FloatingWindow {
                     form.values[idx] = s.clone();
                 }
             }
-            ItemContent::Totp { issuer, account_name, secret } => {
+            ItemContent::Totp {
+                issuer,
+                account_name,
+                secret,
+            } => {
                 if let Some(idx) = form
                     .fields
                     .iter()
                     .position(|f| *f == crate::ui::widgets::FormField::Issuer)
-                    && let Some(iss) = issuer {
-                        form.values[idx] = iss.clone();
-                    }
+                    && let Some(iss) = issuer
+                {
+                    form.values[idx] = iss.clone();
+                }
                 if let Some(idx) = form
                     .fields
                     .iter()

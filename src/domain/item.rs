@@ -146,19 +146,39 @@ impl Item {
 
         match &self.content {
             ItemContent::Generic { value } => {
-                fields.push(("Value".to_string(), value.to_string(), true, Some(FormField::Content)));
+                fields.push((
+                    "Value".to_string(),
+                    value.to_string(),
+                    true,
+                    Some(FormField::Content),
+                ));
             }
             ItemContent::CryptoSeed {
                 seed_phrase,
                 derivation_path,
                 network,
             } => {
-                fields.push(("Seed Phrase".to_string(), seed_phrase.to_string(), true, Some(FormField::SeedPhrase)));
+                fields.push((
+                    "Seed Phrase".to_string(),
+                    seed_phrase.to_string(),
+                    true,
+                    Some(FormField::SeedPhrase),
+                ));
                 if let Some(dp) = derivation_path {
-                    fields.push(("Derivation Path".to_string(), dp.to_string(), false, Some(FormField::DerivationPath)));
+                    fields.push((
+                        "Derivation Path".to_string(),
+                        dp.to_string(),
+                        false,
+                        Some(FormField::DerivationPath),
+                    ));
                 }
                 if let Some(net) = network {
-                    fields.push(("Network".to_string(), net.to_string(), false, Some(FormField::Network)));
+                    fields.push((
+                        "Network".to_string(),
+                        net.to_string(),
+                        false,
+                        Some(FormField::Network),
+                    ));
                 }
             }
             ItemContent::Password {
@@ -168,20 +188,50 @@ impl Item {
                 totp_secret,
             } => {
                 if let Some(user) = username {
-                    fields.push(("Username".to_string(), user.to_string(), false, Some(FormField::Username)));
+                    fields.push((
+                        "Username".to_string(),
+                        user.to_string(),
+                        false,
+                        Some(FormField::Username),
+                    ));
                 }
-                fields.push(("Password".to_string(), password.to_string(), true, Some(FormField::Password)));
+                fields.push((
+                    "Password".to_string(),
+                    password.to_string(),
+                    true,
+                    Some(FormField::Password),
+                ));
                 if let Some(u) = url {
-                    fields.push(("URL".to_string(), u.to_string(), false, Some(FormField::Url)));
+                    fields.push((
+                        "URL".to_string(),
+                        u.to_string(),
+                        false,
+                        Some(FormField::Url),
+                    ));
                 }
                 if let Some(totp) = totp_secret {
                     let totp_val = generate_totp_code(totp);
-                    fields.push(("TOTP Code".to_string(), totp_val, true, Some(FormField::TotpSecret)));
-                    fields.push(("TOTP Secret".to_string(), totp.to_string(), true, Some(FormField::TotpSecret)));
+                    fields.push((
+                        "TOTP Code".to_string(),
+                        totp_val,
+                        true,
+                        Some(FormField::TotpSecret),
+                    ));
+                    fields.push((
+                        "TOTP Secret".to_string(),
+                        totp.to_string(),
+                        true,
+                        Some(FormField::TotpSecret),
+                    ));
                 }
             }
             ItemContent::SecureNote { content } => {
-                fields.push(("Content".to_string(), content.to_string(), true, Some(FormField::Content)));
+                fields.push((
+                    "Content".to_string(),
+                    content.to_string(),
+                    true,
+                    Some(FormField::Content),
+                ));
             }
             ItemContent::ApiKey {
                 key,
@@ -189,9 +239,19 @@ impl Item {
                 expires_at,
             } => {
                 if let Some(svc) = service {
-                    fields.push(("Service".to_string(), svc.to_string(), false, Some(FormField::Service)));
+                    fields.push((
+                        "Service".to_string(),
+                        svc.to_string(),
+                        false,
+                        Some(FormField::Service),
+                    ));
                 }
-                fields.push(("API Key".to_string(), key.to_string(), true, Some(FormField::ApiKey)));
+                fields.push((
+                    "API Key".to_string(),
+                    key.to_string(),
+                    true,
+                    Some(FormField::ApiKey),
+                ));
                 if let Some(exp) = expires_at {
                     fields.push(("Expires".to_string(), exp.to_rfc3339(), false, None)); // no exp form field
                 }
@@ -202,15 +262,37 @@ impl Item {
                 secret,
             } => {
                 if let Some(iss) = issuer {
-                    fields.push(("Issuer".to_string(), iss.to_string(), false, Some(FormField::Issuer)));
+                    fields.push((
+                        "Issuer".to_string(),
+                        iss.to_string(),
+                        false,
+                        Some(FormField::Issuer),
+                    ));
                 }
-                fields.push(("Account Name".to_string(), account_name.to_string(), false, Some(FormField::AccountName)));
+                fields.push((
+                    "Account Name".to_string(),
+                    account_name.to_string(),
+                    false,
+                    Some(FormField::AccountName),
+                ));
 
                 let totp_val = generate_totp_code(secret);
-                fields.push(("TOTP Code".to_string(), totp_val, true, Some(FormField::TotpSecret))); // Map TOTP Code to TotpSecret field to edit the secret
-                fields.push(("Secret".to_string(), secret.to_string(), true, Some(FormField::TotpSecret)));
+                fields.push((
+                    "TOTP Code".to_string(),
+                    totp_val,
+                    true,
+                    Some(FormField::TotpSecret),
+                )); // Map TOTP Code to TotpSecret field to edit the secret
+                fields.push((
+                    "Secret".to_string(),
+                    secret.to_string(),
+                    true,
+                    Some(FormField::TotpSecret),
+                ));
             }
-            ItemContent::Custom { fields: custom_fields } => {
+            ItemContent::Custom {
+                fields: custom_fields,
+            } => {
                 for field in custom_fields {
                     fields.push((
                         field.key.clone(),
@@ -372,14 +454,10 @@ fn generate_totp_code(secret: &str) -> String {
         .to_bytes()
         .unwrap_or_else(|_| secret.as_bytes().to_vec());
 
-    match totp_rs::TOTP::new(
-        totp_rs::Algorithm::SHA1,
-        6,
-        1,
-        30,
-        secret_bytes,
-    ) {
-        Ok(totp) => totp.generate_current().unwrap_or_else(|_| secret.to_string()),
+    match totp_rs::TOTP::new(totp_rs::Algorithm::SHA1, 6, 1, 30, secret_bytes) {
+        Ok(totp) => totp
+            .generate_current()
+            .unwrap_or_else(|_| secret.to_string()),
         Err(_) => secret.to_string(),
     }
 }
