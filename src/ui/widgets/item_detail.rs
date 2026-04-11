@@ -226,6 +226,17 @@ fn build_content_section<'a>(
                 .bg(bg_color),
         ));
 
+        let mut timer_span = None;
+        if label == "TOTP Code" && revealed {
+            let remaining = 30 - (chrono::Utc::now().timestamp() % 30);
+            timer_span = Some(Span::styled(
+                format!(" ({}s)", remaining),
+                Style::default()
+                    .fg(theme.fg_muted)
+                    .bg(bg_color),
+            ));
+        }
+
         spans.push(Span::styled(
             display_value,
             Style::default()
@@ -236,6 +247,10 @@ fn build_content_section<'a>(
                 })
                 .bg(bg_color),
         ));
+
+        if let Some(timer) = timer_span {
+            spans.push(timer);
+        }
 
         lines.push(Line::from(spans));
     }
