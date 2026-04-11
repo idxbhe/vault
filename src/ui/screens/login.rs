@@ -417,6 +417,11 @@ pub fn render(frame: &mut Frame, state: &mut AppState, theme: &ThemePalette) {
         render_loading_overlay(frame, area, state, theme);
     }
 
+    // Render floating windows if any
+    if let Some(window) = state.ui_state.floating_window.clone() {
+        render_floating_window(frame, area, state, &window, theme);
+    }
+
     // Render buttons (now includes keyboard hints in labels)
     render_footer(
         frame,
@@ -1555,5 +1560,91 @@ mod tests {
 
         screen.clear_error();
         assert!(screen.error_message.is_none());
+    }
+}
+
+fn render_floating_window(
+    frame: &mut Frame,
+    area: Rect,
+    state: &mut AppState,
+    window: &crate::app::FloatingWindow,
+    theme: &ThemePalette,
+) {
+    use crate::app::FloatingWindow;
+    use crate::input::mouse::ClickableElement;
+    use crate::ui::widgets::ButtonStyle;
+
+    if let FloatingWindow::ConfirmDeleteVault { vault_name, index: _ } = window {
+        // Simple confirmation window
+        let float_width = area.width.min(60);
+        let float_height = area.height.min(10);
+        let float_x = (area.width.saturating_sub(float_width)) / 2;
+        let float_y = (area.height.saturating_sub(float_height)) / 2;
+
+        let float_area = Rect {
+            x: area.x + float_x,
+            y: area.y + float_y,
+            width: float_width,
+            height: float_height,
+        };
+
+        // Clear background
+        frame.render_widget(Clear, float_area);
+
+        let text = format!("Delete vault \"{}\"?", vault_name);
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_style(Style::default().fg(theme.error))
+            .title(ratatui::text::Line::from(Span::styled(
+                " Confirm Delete Vault ",
+                Style::default().fg(theme.error),
+            )).alignment(ratatui::layout::Alignment::Center));
+
+        frame.render_widget(block.clone(), float_area);
+
+        let inner_area = block.inner(float_area);
+
+        let content_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Min(3),
+                Constraint::Length(1),
+            ])
+            .split(inner_area);
+
+        let p = Paragraph::new(text)
+            .alignment(ratatui::layout::Alignment::Center)
+            .style(Style::default().fg(theme.fg));
+
+        frame.render_widget(p, content_chunks[0]);
+
+        // Render buttons
+        let buttons = vec![
+            (
+                "confirm-delete-vault".to_string(),
+                "Yes (y)",
+                Some("y"),
+                ButtonStyle::Danger,
+            ),
+            (
+                "cancel-delete-vault".to_string(),
+                "No (n)",
+                Some("n"),
+                ButtonStyle::Secondary,
+            ),
+        ];
+
+        let button_regions = crate::ui::widgets::render_button_row(frame, content_chunks[1], &buttons, theme);
+
+        // Register button regions
+        for button_region in button_regions {
+            state.ui_state.layout_regions.register_clickable(
+                button_region.region,
+                ClickableElement::Button(button_region.name),
+            );
+        }
+
     }
 }

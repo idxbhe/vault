@@ -371,6 +371,10 @@ fn render_floating_window(
                 ),
             );
         }
+        FloatingWindow::ConfirmDeleteVault { .. } => {
+            // Handled in login screen rendering, but must be matched here to satisfy compiler
+            // as this function is for main screen only.
+        }
     }
 }
 
