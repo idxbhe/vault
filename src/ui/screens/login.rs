@@ -913,8 +913,8 @@ fn render_create_vault_form(
             total_required_height += 3;
         }
     }
-    // Add space for nav row (1), error row (1), padding and borders
-    total_required_height += 4;
+    // Add space for nav row (1), error row (2), and borders (2)
+    total_required_height += 5;
 
     let max_height = area.height.saturating_sub(2);
     let form_height = total_required_height.min(max_height);
