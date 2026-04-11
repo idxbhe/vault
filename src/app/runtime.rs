@@ -261,12 +261,26 @@ impl Runtime {
 fn set_clipboard(content: &str) -> Result<(), String> {
     #[cfg(feature = "clipboard")]
     {
-        use arboard::Clipboard;
-        let mut clipboard =
-            Clipboard::new().map_err(|e| format!("Failed to access clipboard: {}", e))?;
-        clipboard
-            .set_text(content)
-            .map_err(|e| format!("Failed to set clipboard: {}", e))
+        #[cfg(target_os = "linux")]
+        {
+            use arboard::{Clipboard, SetExtLinux};
+            let content = content.to_owned();
+            std::thread::spawn(move || {
+                if let Ok(mut clipboard) = Clipboard::new() {
+                    let _ = clipboard.set().wait().text(content);
+                }
+            });
+            Ok(())
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            use arboard::Clipboard;
+            let mut clipboard =
+                Clipboard::new().map_err(|e| format!("Failed to access clipboard: {}", e))?;
+            clipboard
+                .set_text(content)
+                .map_err(|e| format!("Failed to set clipboard: {}", e))
+        }
     }
 
     #[cfg(not(feature = "clipboard"))]
@@ -281,12 +295,25 @@ fn set_clipboard(content: &str) -> Result<(), String> {
 fn clear_clipboard() -> Result<(), String> {
     #[cfg(feature = "clipboard")]
     {
-        use arboard::Clipboard;
-        let mut clipboard =
-            Clipboard::new().map_err(|e| format!("Failed to access clipboard: {}", e))?;
-        clipboard
-            .set_text("")
-            .map_err(|e| format!("Failed to clear clipboard: {}", e))
+        #[cfg(target_os = "linux")]
+        {
+            use arboard::{Clipboard, SetExtLinux};
+            std::thread::spawn(move || {
+                if let Ok(mut clipboard) = Clipboard::new() {
+                    let _ = clipboard.set().wait().text("");
+                }
+            });
+            Ok(())
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            use arboard::Clipboard;
+            let mut clipboard =
+                Clipboard::new().map_err(|e| format!("Failed to access clipboard: {}", e))?;
+            clipboard
+                .set_text("")
+                .map_err(|e| format!("Failed to clear clipboard: {}", e))
+        }
     }
 
     #[cfg(not(feature = "clipboard"))]
