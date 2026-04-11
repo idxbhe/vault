@@ -267,9 +267,17 @@ pub fn render(
     form_state: &EditFormState,
     theme: &ThemePalette,
 ) -> FormClickRegions {
+    let max_visible_fields = (area.height.saturating_sub(6) as usize) / 3;
+    let max_visible_fields = max_visible_fields.max(1); // At least 1 field
+
+    let start_idx = form_state.focused_field.saturating_sub(max_visible_fields / 2)
+        .min(form_state.fields.len().saturating_sub(max_visible_fields));
+    let end_idx = (start_idx + max_visible_fields).min(form_state.fields.len());
+    let visible_fields = &form_state.fields[start_idx..end_idx];
+
     // Calculate form dimensions
     let form_width = area.width.min(70);
-    let form_height = (form_state.fields.len() as u16 * 3 + 6).min(area.height - 4);
+    let form_height = (visible_fields.len() as u16 * 3 + 6).min(area.height);
     let x = (area.width.saturating_sub(form_width)) / 2;
     let y = (area.height.saturating_sub(form_height)) / 2;
 
@@ -309,8 +317,7 @@ pub fn render(
     frame.render_widget(block, form_area);
 
     // Layout for fields + buttons (hints now embedded in buttons)
-    let mut constraints: Vec<Constraint> = form_state
-        .fields
+    let mut constraints: Vec<Constraint> = visible_fields
         .iter()
         .map(|_| Constraint::Length(3))
         .collect();
@@ -325,13 +332,14 @@ pub fn render(
     let mut field_regions = Vec::new();
 
     // Render each field
-    for (i, field) in form_state.fields.iter().enumerate() {
+    for (chunk_idx, field) in visible_fields.iter().enumerate() {
+        let i = start_idx + chunk_idx;
         let is_focused = i == form_state.focused_field;
         let value = &form_state.values[i];
 
         render_field(
             frame,
-            chunks[i],
+            chunks[chunk_idx],
             field,
             value,
             is_focused,
@@ -343,16 +351,16 @@ pub fn render(
         field_regions.push((
             i,
             crate::input::mouse::ClickRegion::new(
-                chunks[i].x,
-                chunks[i].y,
-                chunks[i].width,
-                chunks[i].height,
+                chunks[chunk_idx].x,
+                chunks[chunk_idx].y,
+                chunks[chunk_idx].width,
+                chunks[chunk_idx].height,
             ),
         ));
     }
 
     // Render action buttons at bottom (now includes keyboard hints in labels)
-    let button_area = chunks[form_state.fields.len()];
+    let button_area = chunks[visible_fields.len()];
     let button_regions = render_form_buttons(frame, button_area, theme);
 
     FormClickRegions {
