@@ -74,14 +74,27 @@ impl std::error::Error for ClipboardError {}
 /// Set clipboard text content
 #[cfg(feature = "clipboard")]
 fn set_clipboard_text(content: &str) -> Result<(), ClipboardError> {
-    use arboard::Clipboard;
+    #[cfg(target_os = "linux")]
+    {
+        use arboard::{Clipboard, SetExtLinux};
+        let content = content.to_owned();
+        std::thread::spawn(move || {
+            if let Ok(mut clipboard) = Clipboard::new() {
+                let _ = clipboard.set().wait().text(content);
+            }
+        });
+        Ok(())
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        use arboard::Clipboard;
+        let mut clipboard =
+            Clipboard::new().map_err(|e| ClipboardError::AccessDenied(e.to_string()))?;
 
-    let mut clipboard =
-        Clipboard::new().map_err(|e| ClipboardError::AccessDenied(e.to_string()))?;
-
-    clipboard
-        .set_text(content)
-        .map_err(|e| ClipboardError::OperationFailed(e.to_string()))
+        clipboard
+            .set_text(content)
+            .map_err(|e| ClipboardError::OperationFailed(e.to_string()))
+    }
 }
 
 #[cfg(not(feature = "clipboard"))]
@@ -93,15 +106,27 @@ fn set_clipboard_text(_content: &str) -> Result<(), ClipboardError> {
 /// Clear clipboard content
 #[cfg(feature = "clipboard")]
 fn clear_clipboard() -> Result<(), ClipboardError> {
-    use arboard::Clipboard;
+    #[cfg(target_os = "linux")]
+    {
+        use arboard::{Clipboard, SetExtLinux};
+        std::thread::spawn(move || {
+            if let Ok(mut clipboard) = Clipboard::new() {
+                let _ = clipboard.set().wait().text("");
+            }
+        });
+        Ok(())
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        use arboard::Clipboard;
+        let mut clipboard =
+            Clipboard::new().map_err(|e| ClipboardError::AccessDenied(e.to_string()))?;
 
-    let mut clipboard =
-        Clipboard::new().map_err(|e| ClipboardError::AccessDenied(e.to_string()))?;
-
-    // Set empty string to clear
-    clipboard
-        .set_text("")
-        .map_err(|e| ClipboardError::OperationFailed(e.to_string()))
+        // Set empty string to clear
+        clipboard
+            .set_text("")
+            .map_err(|e| ClipboardError::OperationFailed(e.to_string()))
+    }
 }
 
 #[cfg(not(feature = "clipboard"))]
