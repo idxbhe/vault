@@ -438,6 +438,7 @@ impl FloatingWindow {
                 username,
                 password,
                 url,
+                totp_secret,
                 ..
             } => {
                 if let Some(idx) = form
@@ -462,6 +463,14 @@ impl FloatingWindow {
                     && let Some(u) = url
                 {
                     form.values[idx] = u.clone();
+                }
+                if let Some(idx) = form
+                    .fields
+                    .iter()
+                    .position(|f| *f == crate::ui::widgets::FormField::TotpSecret)
+                    && let Some(t) = totp_secret
+                {
+                    form.values[idx] = t.clone();
                 }
             }
             ItemContent::SecureNote { content } => {
