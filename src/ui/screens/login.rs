@@ -1114,6 +1114,22 @@ fn render_create_vault_form(
 
             frame.render_widget(method_para, layout[current_layout_idx]);
         } else if *field_enum == CreateVaultField::RecoveryQuestionsCount {
+            let desc_para = Paragraph::new(vec![
+                Line::from(Span::styled(
+                    "Security questions provide a fallback method to recover the password if forgotten.",
+                    Style::default().fg(theme.fg_muted).add_modifier(Modifier::ITALIC),
+                )),
+                Line::from(Span::styled(
+                    "Note: Answers must be entered exactly as provided during recovery.",
+                    Style::default().fg(theme.warning).add_modifier(Modifier::ITALIC),
+                ))
+            ]);
+            let area = layout[current_layout_idx];
+            let desc_area = Rect::new(area.x, area.y, area.width, 2);
+            let input_area = Rect::new(area.x, area.y + 2, area.width, 3);
+
+            frame.render_widget(desc_para, desc_area);
+
             let count_text = if is_focused {
                 format!("< {} >", form.recovery_questions_count)
             } else {
@@ -1130,7 +1146,7 @@ fn render_create_vault_form(
                     Style::default().fg(theme.fg)
                 })
                 .block(input_block.clone());
-            frame.render_widget(count_para, layout[current_layout_idx]);
+            frame.render_widget(count_para, input_area);
         }
 
         let field_idx = match field_enum {
