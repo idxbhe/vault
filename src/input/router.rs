@@ -18,6 +18,17 @@ pub fn route_event(state: &AppState, event: Event, keybindings: &KeybindingConfi
     }
 }
 
+/// Route keys in vault delete confirmation
+fn route_confirm_delete_vault_key(event: KeyEvent, index: usize) -> Message {
+    match event.code {
+        KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => {
+            Message::ConfirmDeleteVault(index)
+        }
+        KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => Message::CloseFloatingWindow,
+        _ => Message::Noop,
+    }
+}
+
 /// Route a key event to a message
 fn route_key_event(state: &AppState, event: KeyEvent, keybindings: &KeybindingConfig) -> Message {
     // Handle floating windows first
@@ -338,6 +349,7 @@ fn route_floating_window_key(
             route_edit_form_key(event)
         }
         FloatingWindow::TagFilter => route_tag_filter_key(event),
+        FloatingWindow::ConfirmDeleteVault { index, .. } => route_confirm_delete_vault_key(event, *index),
     }
 }
 
@@ -658,6 +670,16 @@ fn handle_clickable_element(
                     }
                 }
                 "cancel-delete" => Message::CloseFloatingWindow,
+                "confirm-delete-vault" => {
+                    if let Some(crate::app::state::FloatingWindow::ConfirmDeleteVault { index, .. }) =
+                        &state.ui_state.floating_window
+                    {
+                        Message::ConfirmDeleteVault(*index)
+                    } else {
+                        Message::Noop
+                    }
+                }
+                "cancel-delete-vault" => Message::CloseFloatingWindow,
 
                 // Legacy buttons
                 "submit" | "save" => Message::FormSubmit,

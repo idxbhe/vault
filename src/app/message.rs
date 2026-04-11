@@ -48,6 +48,8 @@ pub enum Message {
     CancelInput,
     /// Delete the currently selected vault from registry
     DeleteSelectedVault,
+    /// Confirm deletion of a vault
+    ConfirmDeleteVault(usize),
     /// Select next vault in login screen
     LoginSelectNext,
     /// Select previous vault in login screen

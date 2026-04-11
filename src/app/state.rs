@@ -353,6 +353,8 @@ pub enum FloatingWindow {
     Search { state: SearchState },
     /// Delete confirmation
     ConfirmDelete { item_id: Uuid },
+    /// Delete vault confirmation
+    ConfirmDeleteVault { vault_name: String, index: usize },
     /// Kind selector (first step of new item)
     KindSelector { state: KindSelectorState },
     /// New item form

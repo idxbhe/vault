@@ -266,44 +266,54 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
         }
 
         Message::DeleteSelectedVault => {
-            // Delete the currently selected vault from registry
             if !state.registry.entries.is_empty() {
                 let selected_index = state.login_screen.selected_vault;
                 if selected_index < state.registry.entries.len() {
                     let vault_name = state.registry.entries[selected_index].name.clone();
-
-                    // Remove from registry
-                    state.registry.entries.remove(selected_index);
-
-                    // Save updated registry
-                    let effect = match state.registry.save() {
-                        Ok(_) => {
-                            state.ui_state.notify(
-                                format!("Deleted vault: {}", vault_name),
-                                NotificationLevel::Info,
-                            );
-                            Effect::none()
-                        }
-                        Err(e) => {
-                            state.ui_state.notify(
-                                format!("Failed to save registry: {}", e),
-                                NotificationLevel::Error,
-                            );
-                            Effect::none()
-                        }
-                    };
-
-                    // Adjust selected index if needed
-                    if state.login_screen.selected_vault >= state.registry.entries.len()
-                        && !state.registry.entries.is_empty()
-                    {
-                        state.login_screen.selected_vault = state.registry.entries.len() - 1;
-                    }
-
-                    effect
-                } else {
-                    Effect::none()
+                    state.ui_state.floating_window = Some(FloatingWindow::ConfirmDeleteVault {
+                        vault_name,
+                        index: selected_index,
+                    });
                 }
+            }
+            Effect::none()
+        }
+
+        Message::ConfirmDeleteVault(index) => {
+            state.ui_state.close_floating_window();
+
+            if index < state.registry.entries.len() {
+                let vault_name = state.registry.entries[index].name.clone();
+
+                // Remove from registry
+                state.registry.entries.remove(index);
+
+                // Save updated registry
+                let effect = match state.registry.save() {
+                    Ok(_) => {
+                        state.ui_state.notify(
+                            format!("Deleted vault: {}", vault_name),
+                            NotificationLevel::Info,
+                        );
+                        Effect::none()
+                    }
+                    Err(e) => {
+                        state.ui_state.notify(
+                            format!("Failed to save registry: {}", e),
+                            NotificationLevel::Error,
+                        );
+                        Effect::none()
+                    }
+                };
+
+                // Adjust selected index if needed
+                if state.login_screen.selected_vault >= state.registry.entries.len()
+                    && !state.registry.entries.is_empty()
+                {
+                    state.login_screen.selected_vault = state.registry.entries.len() - 1;
+                }
+
+                effect
             } else {
                 Effect::none()
             }
