@@ -294,13 +294,11 @@ impl ItemKind {
     /// Get all available item kinds
     pub fn all() -> &'static [ItemKind] {
         &[
-            ItemKind::Generic,
-            ItemKind::CryptoSeed,
             ItemKind::Password,
+            ItemKind::CryptoSeed,
             ItemKind::SecureNote,
             ItemKind::ApiKey,
             ItemKind::Totp,
-            ItemKind::Custom,
         ]
     }
 

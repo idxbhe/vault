@@ -247,6 +247,8 @@ pub struct UIState {
     pub detail_scroll_offset: usize,
     /// Selected field index in the detail view
     pub detail_selected_field: usize,
+    /// Scroll offset for the category bar
+    pub category_scroll: u16,
     /// Active floating window
     pub floating_window: Option<FloatingWindow>,
     /// Active notifications

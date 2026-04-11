@@ -32,8 +32,6 @@ impl Default for KindSelectorState {
                 ItemKind::ApiKey,
                 ItemKind::Totp,
                 ItemKind::SecureNote,
-                ItemKind::Custom,
-                ItemKind::Generic,
             ],
             selected: 0,
         }
@@ -194,14 +192,13 @@ mod tests {
         state.next();
         state.next();
         state.next();
-        state.next();
-        assert_eq!(state.selected, 6);
+        assert_eq!(state.selected, 4);
 
         state.next(); // At end, should stay
-        assert_eq!(state.selected, 6);
+        assert_eq!(state.selected, 4);
 
         state.prev();
-        assert_eq!(state.selected, 5);
+        assert_eq!(state.selected, 3);
     }
 
     #[test]

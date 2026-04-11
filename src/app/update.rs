@@ -1388,6 +1388,15 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
             Effect::none()
         }
 
+        Message::ScrollCategory(amount) => {
+            if amount > 0 {
+                state.ui_state.category_scroll = state.ui_state.category_scroll.saturating_add(amount as u16 * 10);
+            } else {
+                state.ui_state.category_scroll = state.ui_state.category_scroll.saturating_sub(amount.unsigned_abs() as u16 * 10);
+            }
+            Effect::none()
+        }
+
         Message::ToggleTagFilter(tag_id) => {
             if state.ui_state.filter.tags.contains(&tag_id) {
                 state.ui_state.filter.tags.retain(|t| *t != tag_id);

@@ -110,6 +110,10 @@ pub enum ClickableElement {
     SearchResult(usize),
     /// A category option in the UI (ItemKind or None for All)
     CategoryOption(Option<crate::domain::ItemKind>),
+    /// Left scroll button for categories
+    CategoryScrollLeft,
+    /// Right scroll button for categories
+    CategoryScrollRight,
     /// A button with action name
     Button(String),
     /// Close button / click outside to close

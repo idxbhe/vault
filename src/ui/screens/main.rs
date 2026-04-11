@@ -48,6 +48,7 @@ pub fn render(
         frame,
         main_chunks[0],
         state.ui_state.filter.kind,
+        &mut state.ui_state.category_scroll,
         theme,
     );
 
@@ -56,6 +57,19 @@ pub fn render(
         state.ui_state.layout_regions.register_clickable(
             region,
             crate::input::mouse::ClickableElement::CategoryOption(kind),
+        );
+    }
+
+    if let Some(region) = click_regions.scroll_left {
+        state.ui_state.layout_regions.register_clickable(
+            region,
+            crate::input::mouse::ClickableElement::CategoryScrollLeft,
+        );
+    }
+    if let Some(region) = click_regions.scroll_right {
+        state.ui_state.layout_regions.register_clickable(
+            region,
+            crate::input::mouse::ClickableElement::CategoryScrollRight,
         );
     }
 

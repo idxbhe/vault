@@ -199,7 +199,7 @@ fn get_context_hints(state: &AppState) -> String {
                 "Esc:close".to_string()
             } else {
                 match state.ui_state.focused_pane {
-                    Pane::List => "j/k:nav /:search n:new y:copy".to_string(),
+                    Pane::List => "j/k:nav ,/.:cat /:search n:new".to_string(),
                     Pane::Detail => "j/k:scroll r:reveal e:edit".to_string(),
                     Pane::Search => "Enter:select Esc:cancel".to_string(),
                 }
