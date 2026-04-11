@@ -45,9 +45,6 @@ pub enum CreateVaultField {
     RecoveryAnswer2,
     RecoveryQuestion3,
     RecoveryAnswer3,
-    NextButton,
-    BackButton,
-    CreateButton,
 }
 
 impl CreateVaultField {
@@ -55,9 +52,7 @@ impl CreateVaultField {
         match step {
             CreateVaultStep::Step1 => match self {
                 Self::Name => Self::EncryptionMethod,
-                Self::EncryptionMethod => Self::NextButton,
-                Self::NextButton => Self::BackButton,
-                Self::BackButton => Self::Name,
+                Self::EncryptionMethod => Self::Name,
                 _ => Self::Name,
             },
             CreateVaultStep::Step2 => match self {
@@ -67,12 +62,10 @@ impl CreateVaultField {
                     if use_keyfile {
                         Self::KeyfilePath
                     } else {
-                        Self::NextButton
+                        Self::Password
                     }
                 }
-                Self::KeyfilePath => Self::NextButton,
-                Self::NextButton => Self::BackButton,
-                Self::BackButton => Self::Password,
+                Self::KeyfilePath => Self::Password,
                 _ => Self::Password,
             },
             CreateVaultStep::Step3 => match self {
@@ -80,7 +73,7 @@ impl CreateVaultField {
                     if q_count > 0 {
                         Self::RecoveryQuestion1
                     } else {
-                        Self::CreateButton
+                        Self::RecoveryQuestionsCount
                     }
                 }
                 Self::RecoveryQuestion1 => Self::RecoveryAnswer1,
@@ -88,7 +81,7 @@ impl CreateVaultField {
                     if q_count > 1 {
                         Self::RecoveryQuestion2
                     } else {
-                        Self::CreateButton
+                        Self::RecoveryQuestionsCount
                     }
                 }
                 Self::RecoveryQuestion2 => Self::RecoveryAnswer2,
@@ -96,13 +89,11 @@ impl CreateVaultField {
                     if q_count > 2 {
                         Self::RecoveryQuestion3
                     } else {
-                        Self::CreateButton
+                        Self::RecoveryQuestionsCount
                     }
                 }
                 Self::RecoveryQuestion3 => Self::RecoveryAnswer3,
-                Self::RecoveryAnswer3 => Self::CreateButton,
-                Self::CreateButton => Self::BackButton,
-                Self::BackButton => Self::RecoveryQuestionsCount,
+                Self::RecoveryAnswer3 => Self::RecoveryQuestionsCount,
                 _ => Self::RecoveryQuestionsCount,
             },
         }
@@ -111,36 +102,25 @@ impl CreateVaultField {
     pub fn prev(self, step: CreateVaultStep, q_count: usize, use_keyfile: bool) -> Self {
         match step {
             CreateVaultStep::Step1 => match self {
-                Self::Name => Self::BackButton,
                 Self::EncryptionMethod => Self::Name,
-                Self::NextButton => Self::EncryptionMethod,
-                Self::BackButton => Self::NextButton,
+                Self::Name => Self::EncryptionMethod,
                 _ => Self::Name,
             },
             CreateVaultStep::Step2 => match self {
-                Self::Password => Self::BackButton,
-                Self::ConfirmPassword => Self::Password,
-                Self::UseKeyfile => Self::ConfirmPassword,
-                Self::KeyfilePath => Self::UseKeyfile,
-                Self::NextButton => {
+                Self::Password => {
                     if use_keyfile {
                         Self::KeyfilePath
                     } else {
                         Self::UseKeyfile
                     }
                 }
-                Self::BackButton => Self::NextButton,
+                Self::ConfirmPassword => Self::Password,
+                Self::UseKeyfile => Self::ConfirmPassword,
+                Self::KeyfilePath => Self::UseKeyfile,
                 _ => Self::Password,
             },
             CreateVaultStep::Step3 => match self {
-                Self::RecoveryQuestionsCount => Self::BackButton,
-                Self::RecoveryQuestion1 => Self::RecoveryQuestionsCount,
-                Self::RecoveryAnswer1 => Self::RecoveryQuestion1,
-                Self::RecoveryQuestion2 => Self::RecoveryAnswer1,
-                Self::RecoveryAnswer2 => Self::RecoveryQuestion2,
-                Self::RecoveryQuestion3 => Self::RecoveryAnswer2,
-                Self::RecoveryAnswer3 => Self::RecoveryQuestion3,
-                Self::CreateButton => {
+                Self::RecoveryQuestionsCount => {
                     if q_count > 2 {
                         Self::RecoveryAnswer3
                     } else if q_count > 1 {
@@ -151,7 +131,12 @@ impl CreateVaultField {
                         Self::RecoveryQuestionsCount
                     }
                 }
-                Self::BackButton => Self::CreateButton,
+                Self::RecoveryQuestion1 => Self::RecoveryQuestionsCount,
+                Self::RecoveryAnswer1 => Self::RecoveryQuestion1,
+                Self::RecoveryQuestion2 => Self::RecoveryAnswer1,
+                Self::RecoveryAnswer2 => Self::RecoveryQuestion2,
+                Self::RecoveryQuestion3 => Self::RecoveryAnswer2,
+                Self::RecoveryAnswer3 => Self::RecoveryQuestion3,
                 _ => Self::RecoveryQuestionsCount,
             },
         }
@@ -924,10 +909,6 @@ fn render_create_vault_form(
     for (_, _, field_enum) in &fields_to_show {
         if *field_enum == CreateVaultField::EncryptionMethod {
             total_required_height += 4;
-        } else if *field_enum == CreateVaultField::UseKeyfile
-            || *field_enum == CreateVaultField::RecoveryQuestionsCount
-        {
-            total_required_height += 6; // Accounts for 2 text lines and 1 input block height
         } else {
             total_required_height += 3;
         }
@@ -948,49 +929,54 @@ fn render_create_vault_form(
     if total_required_height <= max_height {
         form.scroll_offset = 0;
     } else {
-        // Approximate visible rows calculation (falling back to simple field count to manage offset)
-        let inner_height = form_area.height.saturating_sub(2); // subtract borders
+        // Find how many fields can actually fit in the available space
+        let available_field_height = form_area.height.saturating_sub(2); // subtract borders
+
         let mut current_h = 0;
         max_visible_rows = 0;
-
-        for i in form.scroll_offset as usize..fields_to_show.len() {
+        // Start counting from current offset
+        let mut i = form.scroll_offset as usize;
+        while i < fields_to_show.len() {
             let h = match fields_to_show[i].2 {
                 CreateVaultField::EncryptionMethod => 4,
-                CreateVaultField::UseKeyfile | CreateVaultField::RecoveryQuestionsCount => 6,
                 _ => 3,
             };
-            if current_h + h <= inner_height {
+            if current_h + h <= available_field_height {
                 current_h += h;
                 max_visible_rows += 1;
+                i += 1;
             } else {
                 break;
             }
         }
 
-        // ensure we account for bottom elements
-        if max_visible_rows > 0 {
-            max_visible_rows = max_visible_rows.saturating_sub(1);
-        }
-
         if let Some(idx) = focused_idx {
             if idx < form.scroll_offset as usize {
+                // Scroll up
                 form.scroll_offset = idx as u16;
             } else if idx >= (form.scroll_offset as usize + max_visible_rows) {
-                form.scroll_offset = (idx.saturating_sub(max_visible_rows) + 1) as u16;
-            }
-        } else {
-            // If focused field is navigation (Next/Create/Back), scroll to bottom
-            let is_nav = form.focused_field == CreateVaultField::NextButton
-                || form.focused_field == CreateVaultField::CreateButton
-                || form.focused_field == CreateVaultField::BackButton;
+                // Scroll down
+                // We need to calculate the offset such that the focused index is at the bottom of the visible list
+                let mut reverse_h = 0;
+                let mut new_offset = idx;
 
-            if is_nav {
-                // simple fallback if navigating bottom
-                form.scroll_offset = fields_to_show.len().saturating_sub(max_visible_rows) as u16;
+                while new_offset > 0 {
+                    let h = match fields_to_show[new_offset].2 {
+                        CreateVaultField::EncryptionMethod => 4,
+                        _ => 3,
+                    };
+                    if reverse_h + h <= available_field_height {
+                        reverse_h += h;
+                        new_offset -= 1;
+                    } else {
+                        break;
+                    }
+                }
+                form.scroll_offset = (new_offset + 1) as u16;
             }
         }
 
-        // Bound scroll offset
+        // Bound scroll offset to prevent scrolling past the end
         let max_scroll = fields_to_show.len().saturating_sub(max_visible_rows) as u16;
         form.scroll_offset = form.scroll_offset.min(max_scroll);
     }
@@ -1030,10 +1016,6 @@ fn render_create_vault_form(
         let field = fields_to_show[i].2;
         if field == CreateVaultField::EncryptionMethod {
             constraints.push(Constraint::Length(4));
-        } else if field == CreateVaultField::UseKeyfile
-            || field == CreateVaultField::RecoveryQuestionsCount
-        {
-            constraints.push(Constraint::Length(6)); // Give room for descriptions
         } else {
             constraints.push(Constraint::Length(3));
         }
@@ -1088,71 +1070,15 @@ fn render_create_vault_form(
             .title(Span::styled(format!(" {} ", label), title_style));
 
         if let Some(buffer) = buffer_opt {
-            if *field_enum == CreateVaultField::UseKeyfile {
-                let desc_para = Paragraph::new(vec![
-                    Line::from(Span::styled(
-                        "A keyfile is an additional secret file required to unlock the vault.",
-                        Style::default().fg(theme.fg_muted).add_modifier(Modifier::ITALIC),
-                    )),
-                    Line::from(Span::styled(
-                        "Warning: If the keyfile is lost, the vault cannot be recovered even with the password.",
-                        Style::default().fg(theme.warning).add_modifier(Modifier::ITALIC),
-                    ))
-                ]);
-                let area = layout[current_layout_idx];
-                let desc_area = Rect::new(area.x, area.y, area.width, 2);
-                let input_area = Rect::new(area.x, area.y + 2, area.width, 3);
+            let input_para = Paragraph::new(buffer.display())
+                .style(Style::default().fg(theme.fg))
+                .block(input_block.clone());
+            frame.render_widget(input_para, layout[current_layout_idx]);
 
-                frame.render_widget(desc_para, desc_area);
-
-                let input_para = Paragraph::new(buffer.display())
-                    .style(Style::default().fg(theme.fg))
-                    .block(input_block.clone());
-                frame.render_widget(input_para, input_area);
-
-                if is_focused {
-                    let cursor_x = input_area.x + 1 + buffer.cursor as u16;
-                    let cursor_y = input_area.y + 1;
-                    frame.set_cursor_position((cursor_x, cursor_y));
-                }
-            } else if *field_enum == CreateVaultField::RecoveryQuestionsCount {
-                let desc_para = Paragraph::new(vec![
-                    Line::from(Span::styled(
-                        "Security questions provide a fallback method to recover the password if forgotten.",
-                        Style::default().fg(theme.fg_muted).add_modifier(Modifier::ITALIC),
-                    )),
-                    Line::from(Span::styled(
-                        "Note: Answers must be entered exactly as provided during recovery.",
-                        Style::default().fg(theme.warning).add_modifier(Modifier::ITALIC),
-                    ))
-                ]);
-                let area = layout[current_layout_idx];
-                let desc_area = Rect::new(area.x, area.y, area.width, 2);
-                let input_area = Rect::new(area.x, area.y + 2, area.width, 3);
-
-                frame.render_widget(desc_para, desc_area);
-
-                let input_para = Paragraph::new(buffer.display())
-                    .style(Style::default().fg(theme.fg))
-                    .block(input_block.clone());
-                frame.render_widget(input_para, input_area);
-
-                if is_focused {
-                    let cursor_x = input_area.x + 1 + buffer.cursor as u16;
-                    let cursor_y = input_area.y + 1;
-                    frame.set_cursor_position((cursor_x, cursor_y));
-                }
-            } else {
-                let input_para = Paragraph::new(buffer.display())
-                    .style(Style::default().fg(theme.fg))
-                    .block(input_block.clone());
-                frame.render_widget(input_para, layout[current_layout_idx]);
-
-                if is_focused {
-                    let cursor_x = layout[current_layout_idx].x + 1 + buffer.cursor as u16;
-                    let cursor_y = layout[current_layout_idx].y + 1;
-                    frame.set_cursor_position((cursor_x, cursor_y));
-                }
+            if is_focused {
+                let cursor_x = layout[current_layout_idx].x + 1 + buffer.cursor as u16;
+                let cursor_y = layout[current_layout_idx].y + 1;
+                frame.set_cursor_position((cursor_x, cursor_y));
             }
         } else if *field_enum == CreateVaultField::EncryptionMethod {
             let method_text = if is_focused {
@@ -1203,7 +1129,6 @@ fn render_create_vault_form(
             CreateVaultField::RecoveryAnswer2 => 10,
             CreateVaultField::RecoveryQuestion3 => 11,
             CreateVaultField::RecoveryAnswer3 => 12,
-            _ => 0,
         };
         state.ui_state.layout_regions.register_clickable(
             crate::input::mouse::ClickRegion::new(
@@ -1217,113 +1142,7 @@ fn render_create_vault_form(
         current_layout_idx += 1;
     }
 
-    // Navigation row is always added at the end (idx = total constrained length - 2)
-    let nav_layout_idx = layout.len() - 2;
     let error_layout_idx = layout.len() - 1;
-
-    let nav_layout = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-        .split(layout[nav_layout_idx]);
-
-    // Back Button (hidden on Step 1)
-    if form.step != CreateVaultStep::Step1 {
-        let btn_focused = form.focused_field == CreateVaultField::BackButton;
-        let btn_style = if btn_focused {
-            Style::default()
-                .bg(theme.accent)
-                .fg(theme.bg)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().bg(theme.selection_bg).fg(theme.fg)
-        };
-
-        let back_text = if btn_focused {
-            " ◂ Back (Esc) "
-        } else {
-            " Back (Esc) "
-        };
-        let back_para = Paragraph::new(back_text)
-            .alignment(Alignment::Center)
-            .style(btn_style);
-
-        // Make button fixed width
-        let btn_width = 16;
-        let btn_x = nav_layout[0].x + nav_layout[0].width.saturating_sub(btn_width); // Right align in left half
-        let btn_rect = Rect::new(btn_x.saturating_sub(1), nav_layout[0].y, btn_width, 1);
-
-        frame.render_widget(back_para, btn_rect);
-        state.ui_state.layout_regions.register_clickable(
-            crate::input::mouse::ClickRegion::new(
-                btn_rect.x,
-                btn_rect.y,
-                btn_rect.width,
-                btn_rect.height,
-            ),
-            crate::input::mouse::ClickableElement::FormField(14), // BackButton idx
-        );
-    }
-
-    // Next / Create Button
-    let is_last_step = form.step == CreateVaultStep::Step3;
-    let target_field = if is_last_step {
-        CreateVaultField::CreateButton
-    } else {
-        CreateVaultField::NextButton
-    };
-    let btn_focused = form.focused_field == target_field;
-    let btn_style = if btn_focused {
-        Style::default()
-            .bg(theme.accent)
-            .fg(theme.bg)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().bg(theme.selection_bg).fg(theme.fg)
-    };
-
-    let btn_text = if is_last_step {
-        if btn_focused {
-            " Create (Enter) ▸ "
-        } else {
-            " Create (Enter) "
-        }
-    } else {
-        if btn_focused {
-            " Next (Enter) ▸ "
-        } else {
-            " Next (Enter) "
-        }
-    };
-
-    let btn_para = Paragraph::new(btn_text)
-        .alignment(Alignment::Center)
-        .style(btn_style);
-
-    let btn_width = 18;
-    let btn_x = if form.step == CreateVaultStep::Step1 {
-        // Center the button in Step 1
-        layout[nav_layout_idx].x
-            + (layout[nav_layout_idx].width.saturating_sub(btn_width)) / 2
-    } else {
-        nav_layout[1].x + 1 // Left align in right half
-    };
-    let btn_y = if form.step == CreateVaultStep::Step1 {
-        layout[nav_layout_idx].y
-    } else {
-        nav_layout[1].y
-    };
-    let btn_rect = Rect::new(btn_x, btn_y, btn_width, 1);
-
-    frame.render_widget(btn_para, btn_rect);
-    state.ui_state.layout_regions.register_clickable(
-        crate::input::mouse::ClickRegion::new(
-            btn_rect.x,
-            btn_rect.y,
-            btn_rect.width,
-            btn_rect.height,
-        ),
-        crate::input::mouse::ClickableElement::FormField(if is_last_step { 15 } else { 13 }),
-    );
 
     // Render error message
     if let Some(ref error) = error_message {
@@ -1494,15 +1313,71 @@ fn render_footer(
         ]
     } else if creating_vault {
         let mut btns = vec![];
+
+        let form = &state.login_screen.create_vault_form;
+
+        let primary_label = if form.step == CreateVaultStep::Step3
+            && form.focused_field == CreateVaultField::RecoveryAnswer3
+        {
+            "Create"
+        } else if form.step == CreateVaultStep::Step3
+            && form.focused_field == CreateVaultField::RecoveryQuestionsCount {
+                let q_count = form
+                    .recovery_questions_count
+                    .text
+                    .trim()
+                    .parse::<usize>()
+                    .unwrap_or(0);
+                if q_count == 0 {
+                    "Create"
+                } else {
+                    "Next"
+                }
+        } else if form.step == CreateVaultStep::Step3
+            && form.focused_field == CreateVaultField::RecoveryAnswer1 {
+                let q_count = form
+                    .recovery_questions_count
+                    .text
+                    .trim()
+                    .parse::<usize>()
+                    .unwrap_or(0);
+                if q_count == 1 {
+                    "Create"
+                } else {
+                    "Next"
+                }
+        } else if form.step == CreateVaultStep::Step3
+            && form.focused_field == CreateVaultField::RecoveryAnswer2 {
+                let q_count = form
+                    .recovery_questions_count
+                    .text
+                    .trim()
+                    .parse::<usize>()
+                    .unwrap_or(0);
+                if q_count == 2 {
+                    "Create"
+                } else {
+                    "Next"
+                }
+        } else {
+            "Next"
+        };
+
+        let secondary_label = if form.step == CreateVaultStep::Step1 {
+            "Cancel"
+        } else {
+            "Back"
+        };
+
         btns.push((
             "save-vault".to_string(),
-            "Create",
+            primary_label,
             Some("Enter"),
             ButtonStyle::Primary,
         ));
         btns.push((
             "cancel".to_string(),
-            "Cancel",
+            secondary_label,
             Some("Esc"),
             ButtonStyle::Secondary,
         ));

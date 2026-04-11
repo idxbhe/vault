@@ -860,11 +860,42 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
             }
 
             if state.screen == Screen::Login && state.login_screen.creating_vault {
-                let field = state.login_screen.create_vault_form.focused_field;
-                if field == crate::ui::screens::login::CreateVaultField::CreateButton {
-                    return handle_create_vault_submit(state);
-                } else if field == crate::ui::screens::login::CreateVaultField::NextButton {
-                    let form = &mut state.login_screen.create_vault_form;
+                let form = &mut state.login_screen.create_vault_form;
+                let current_field = form.focused_field;
+                let mut advance_step = false;
+
+                if form.step == crate::ui::screens::login::CreateVaultStep::Step1 {
+                    if current_field == crate::ui::screens::login::CreateVaultField::EncryptionMethod {
+                        advance_step = true;
+                    } else {
+                        return update(state, Message::FormNextField);
+                    }
+                } else if form.step == crate::ui::screens::login::CreateVaultStep::Step2 {
+                    let use_keyfile_str = form.use_keyfile.text.clone();
+                    let use_keyfile = use_keyfile_str.trim().eq_ignore_ascii_case("y")
+                        || use_keyfile_str.trim().eq_ignore_ascii_case("yes");
+
+                    if (!use_keyfile && current_field == crate::ui::screens::login::CreateVaultField::UseKeyfile)
+                        || (use_keyfile && current_field == crate::ui::screens::login::CreateVaultField::KeyfilePath)
+                    {
+                        advance_step = true;
+                    } else {
+                        return update(state, Message::FormNextField);
+                    }
+                } else if form.step == crate::ui::screens::login::CreateVaultStep::Step3 {
+                    let q_count = form.recovery_questions_count.text.trim().parse::<usize>().unwrap_or(0);
+                    let is_last = (q_count == 0 && current_field == crate::ui::screens::login::CreateVaultField::RecoveryQuestionsCount) ||
+                                  (q_count == 1 && current_field == crate::ui::screens::login::CreateVaultField::RecoveryAnswer1) ||
+                                  (q_count == 2 && current_field == crate::ui::screens::login::CreateVaultField::RecoveryAnswer2) ||
+                                  (current_field == crate::ui::screens::login::CreateVaultField::RecoveryAnswer3);
+                    if is_last {
+                        return handle_create_vault_submit(state);
+                    } else {
+                        return update(state, Message::FormNextField);
+                    }
+                }
+
+                if advance_step {
                     if form.step == crate::ui::screens::login::CreateVaultStep::Step1 {
                         let vault_name = form.name.text.trim().to_string();
                         if vault_name.is_empty() {
@@ -904,21 +935,6 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
                         state.login_screen.error_message = None;
                         return Effect::none();
                     }
-                } else if field == crate::ui::screens::login::CreateVaultField::BackButton {
-                    let form = &mut state.login_screen.create_vault_form;
-                    if form.step == crate::ui::screens::login::CreateVaultStep::Step2 {
-                        form.step = crate::ui::screens::login::CreateVaultStep::Step1;
-                        form.focused_field = crate::ui::screens::login::CreateVaultField::Name;
-                        state.login_screen.error_message = None;
-                        return Effect::none();
-                    } else if form.step == crate::ui::screens::login::CreateVaultStep::Step3 {
-                        form.step = crate::ui::screens::login::CreateVaultStep::Step2;
-                        form.focused_field = crate::ui::screens::login::CreateVaultField::Password;
-                        state.login_screen.error_message = None;
-                        return Effect::none();
-                    }
-                } else {
-                    return update(state, Message::FormNextField);
                 }
             }
 
