@@ -287,7 +287,7 @@ pub fn render(
     frame.render_widget(Clear, form_area);
 
     // Build title
-    let title = if form_state.is_new {
+    let mut title = if form_state.is_new {
         format!(
             " {} New {} ",
             icons::ui::ADD,
@@ -301,7 +301,11 @@ pub fn render(
         )
     };
 
-    let block = Block::default()
+    if start_idx > 0 {
+        title = format!("{} ↑ ", title);
+    }
+
+    let mut block = Block::default()
         .borders(Borders::ALL)
         .border_type(ratatui::widgets::BorderType::Rounded)
         .border_style(Style::default().fg(theme.accent))
@@ -312,6 +316,16 @@ pub fn render(
                 .add_modifier(Modifier::BOLD),
         ))
         .style(Style::default().bg(theme.bg));
+
+    if end_idx < form_state.fields.len() {
+        use ratatui::text::Line;
+        block = block.title_bottom(
+            Line::from(vec![Span::styled(
+                " ↓ More fields below ",
+                Style::default().fg(theme.fg_muted),
+            )]).alignment(ratatui::layout::Alignment::Center)
+        );
+    }
 
     let inner = block.inner(form_area);
     frame.render_widget(block, form_area);
