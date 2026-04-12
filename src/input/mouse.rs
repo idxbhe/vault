@@ -106,6 +106,8 @@ pub enum ClickableElement {
     FormField(usize),
     /// A detail field (field index)
     DetailField(usize),
+    /// The detail notes area
+    DetailNotes,
     /// A kind option in selector (index)
     KindOption(usize),
     /// A search result (index)

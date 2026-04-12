@@ -47,6 +47,11 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
 
         Message::FocusPane(pane) => {
             state.ui_state.focused_pane = pane;
+            if pane == Pane::Detail {
+                state.ui_state.detail_scroll_offset = 0;
+                state.ui_state.detail_focus = crate::app::state::DetailFocus::Field(0);
+                state.ui_state.notes_scroll_offset = 0;
+            }
             Effect::none()
         }
 
@@ -348,7 +353,8 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
             {
                 vs.selected_item_id = Some(id);
                 state.ui_state.detail_scroll_offset = 0;
-                state.ui_state.detail_selected_field = 0;
+                state.ui_state.detail_focus = crate::app::state::DetailFocus::Field(0);
+                state.ui_state.notes_scroll_offset = 0;
             }
             Effect::none()
         }
@@ -679,6 +685,31 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
             Effect::none()
         }
 
+        Message::FocusDetailNotes => {
+            state.ui_state.detail_focus = crate::app::state::DetailFocus::Notes;
+            Effect::none()
+        }
+
+        Message::EditNotes => {
+            if let Some(item) = state.selected_item() {
+                let target_form_field = Some(crate::ui::widgets::FormField::Notes);
+                let msg = Message::OpenFloatingWindow(FloatingWindow::edit_item_form(item));
+                let eff = update(state, msg);
+
+                if let Some(FloatingWindow::EditItem { ref mut form, .. }) = state.ui_state.floating_window {
+                    if let Some(target) = target_form_field {
+                        if let Some(pos) = form.fields.iter().position(|f| *f == target) {
+                            form.focused_field = pos;
+                            form.target_field = Some(target);
+                            form.cursor = form.values[pos].len();
+                        }
+                    }
+                }
+                return eff;
+            }
+            Effect::none()
+        }
+
         Message::EditField(index) => {
             // Get the item, build edit form, and try to focus the specific field index
             if let Some(item) = state.selected_item() {
@@ -693,9 +724,11 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
                 if let Some(FloatingWindow::EditItem { ref mut form, .. }) =
                     state.ui_state.floating_window
                 {
-                    if let Some(target) = target_form_field {
+                    if let Some(target) = target_form_field.clone() {
                         if let Some(pos) = form.fields.iter().position(|f| *f == target) {
                             form.focused_field = pos;
+                            form.target_field = Some(target);
+                            form.cursor = form.values[pos].len();
                         }
                     }
                 }
@@ -1658,7 +1691,8 @@ fn select_adjacent_item(state: &mut AppState, delta: i32) {
     {
         if vs.selected_item_id != Some(*id) {
             vs.selected_item_id = Some(*id);
-            state.ui_state.detail_selected_field = 0;
+            state.ui_state.detail_focus = crate::app::state::DetailFocus::Field(0);
+            state.ui_state.notes_scroll_offset = 0;
         }
     }
 }
@@ -1747,19 +1781,81 @@ fn handle_scroll(state: &mut AppState, direction: ScrollDirection) {
             (&mut state.ui_state.list_scroll_offset, max)
         }
         Pane::Detail => {
-            let max_fields = state
-                .selected_item()
+            let item = state.selected_item();
+            let max_fields = item
                 .map(|item| item.get_fields().len().saturating_sub(1))
                 .unwrap_or(0);
 
-            let offset = &mut state.ui_state.detail_selected_field;
-            match direction {
-                ScrollDirection::Up => *offset = offset.saturating_sub(1),
-                ScrollDirection::Down => *offset = (*offset + 1).min(max_fields),
-                ScrollDirection::PageUp => *offset = offset.saturating_sub(10),
-                ScrollDirection::PageDown => *offset = (*offset + 10).min(max_fields),
-                ScrollDirection::Top => *offset = 0,
-                ScrollDirection::Bottom => *offset = max_fields,
+            let has_notes = item.map(|item| item.notes.is_some()).unwrap_or(false);
+
+            match state.ui_state.detail_focus {
+                crate::app::state::DetailFocus::Field(idx) => {
+                    let offset = idx;
+                    let mut new_offset = offset;
+                    match direction {
+                        ScrollDirection::Up => new_offset = offset.saturating_sub(1),
+                        ScrollDirection::Down => {
+                            if offset >= max_fields {
+                                if has_notes {
+                                    state.ui_state.detail_focus = crate::app::state::DetailFocus::Notes;
+                                }
+                            } else {
+                                new_offset = offset + 1;
+                            }
+                        },
+                        ScrollDirection::PageUp => new_offset = offset.saturating_sub(10),
+                        ScrollDirection::PageDown => {
+                            if offset + 10 > max_fields {
+                                if has_notes {
+                                    state.ui_state.detail_focus = crate::app::state::DetailFocus::Notes;
+                                } else {
+                                    new_offset = max_fields;
+                                }
+                            } else {
+                                new_offset = offset + 10;
+                            }
+                        },
+                        ScrollDirection::Top => new_offset = 0,
+                        ScrollDirection::Bottom => {
+                            if has_notes {
+                                state.ui_state.detail_focus = crate::app::state::DetailFocus::Notes;
+                            } else {
+                                new_offset = max_fields;
+                            }
+                        },
+                    }
+                    if matches!(state.ui_state.detail_focus, crate::app::state::DetailFocus::Field(_)) {
+                        state.ui_state.detail_focus = crate::app::state::DetailFocus::Field(new_offset.min(max_fields));
+                    }
+                }
+                crate::app::state::DetailFocus::Notes => {
+                    let notes_max_scroll = state.selected_item().and_then(|item| item.notes.as_ref()).map(|n| n.lines().count().saturating_sub(1) as u16).unwrap_or(0);
+                    let offset = &mut state.ui_state.notes_scroll_offset;
+                    match direction {
+                        ScrollDirection::Up => {
+                            if *offset == 0 {
+                                state.ui_state.detail_focus = crate::app::state::DetailFocus::Field(max_fields);
+                            } else {
+                                *offset = offset.saturating_sub(1);
+                            }
+                        },
+                        ScrollDirection::Down => *offset = (*offset + 1).min(notes_max_scroll),
+                        ScrollDirection::PageUp => {
+                            if *offset < 10 {
+                                *offset = 0;
+                                state.ui_state.detail_focus = crate::app::state::DetailFocus::Field(max_fields);
+                            } else {
+                                *offset = offset.saturating_sub(10);
+                            }
+                        },
+                        ScrollDirection::PageDown => *offset = (*offset + 10).min(notes_max_scroll),
+                        ScrollDirection::Top => {
+                            *offset = 0;
+                            state.ui_state.detail_focus = crate::app::state::DetailFocus::Field(0);
+                        },
+                        ScrollDirection::Bottom => *offset = notes_max_scroll,
+                    }
+                }
             }
             return;
         }

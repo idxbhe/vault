@@ -236,6 +236,21 @@ impl ItemSnapshot {
     }
 }
 
+/// Detail pane focus state
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DetailFocus {
+    /// Focus on a specific field index
+    Field(usize),
+    /// Focus on the notes section
+    Notes,
+}
+
+impl Default for DetailFocus {
+    fn default() -> Self {
+        Self::Field(0)
+    }
+}
+
 /// UI-specific state
 #[derive(Debug, Default)]
 pub struct UIState {
@@ -245,8 +260,10 @@ pub struct UIState {
     pub list_scroll_offset: usize,
     /// Scroll offset in the detail view
     pub detail_scroll_offset: usize,
-    /// Selected field index in the detail view
-    pub detail_selected_field: usize,
+    /// Focus state in the detail view
+    pub detail_focus: DetailFocus,
+    /// Scroll offset for the notes field in detail view
+    pub notes_scroll_offset: u16,
     /// Scroll offset for the category bar
     pub category_scroll: u16,
     /// Active floating window

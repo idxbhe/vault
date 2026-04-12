@@ -157,6 +157,10 @@ pub enum Message {
     FormPrevField,
     /// Focus a specific form field by index (for mouse clicks)
     FormFocusField(usize),
+    /// Focus the detail notes
+    FocusDetailNotes,
+    /// Edit the detail notes
+    EditNotes,
     /// Submit the form
     FormSubmit,
     /// Select item kind in kind selector

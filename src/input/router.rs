@@ -234,7 +234,12 @@ fn action_to_message(state: &AppState, action: KeyAction) -> Message {
         KeyAction::Select => {
             if let Some(item) = state.selected_item() {
                 match state.ui_state.focused_pane {
-                    Pane::Detail => Message::CopyField(state.ui_state.detail_selected_field),
+                    Pane::Detail => {
+                        match state.ui_state.detail_focus {
+                            crate::app::state::DetailFocus::Field(idx) => Message::CopyField(idx),
+                            crate::app::state::DetailFocus::Notes => Message::CopyCurrentItem,
+                        }
+                    },
                     _ => Message::OpenFloatingWindow(FloatingWindow::edit_item_form(item)),
                 }
             } else {
@@ -253,7 +258,12 @@ fn action_to_message(state: &AppState, action: KeyAction) -> Message {
         KeyAction::EditItem => {
             if let Some(item) = state.selected_item() {
                 match state.ui_state.focused_pane {
-                    Pane::Detail => Message::EditField(state.ui_state.detail_selected_field),
+                    Pane::Detail => {
+                        match state.ui_state.detail_focus {
+                            crate::app::state::DetailFocus::Field(idx) => Message::EditField(idx),
+                            crate::app::state::DetailFocus::Notes => Message::EditNotes,
+                        }
+                    },
                     _ => Message::OpenFloatingWindow(FloatingWindow::edit_item_form(item)),
                 }
             } else {
@@ -272,7 +282,12 @@ fn action_to_message(state: &AppState, action: KeyAction) -> Message {
             }
         }
         KeyAction::CopyContent => match state.ui_state.focused_pane {
-            Pane::Detail => Message::CopyField(state.ui_state.detail_selected_field),
+            Pane::Detail => {
+                match state.ui_state.detail_focus {
+                    crate::app::state::DetailFocus::Field(idx) => Message::CopyField(idx),
+                    crate::app::state::DetailFocus::Notes => Message::CopyCurrentItem,
+                }
+            },
             _ => Message::CopyCurrentItem,
         },
         KeyAction::ToggleReveal => Message::ToggleContentReveal,
@@ -421,7 +436,13 @@ fn route_edit_form_key(event: KeyEvent) -> Message {
         KeyCode::Right => Message::InputRight,
         KeyCode::Home => Message::InputHome,
         KeyCode::End => Message::InputEnd,
-        KeyCode::Enter => Message::FormSubmit,
+        KeyCode::Enter => {
+            if event.modifiers.contains(KeyModifiers::SHIFT) {
+                Message::InputChar('\n')
+            } else {
+                Message::FormSubmit
+            }
+        }
         KeyCode::Esc => Message::InputCancel,
         KeyCode::Tab | KeyCode::Down => Message::FormNextField,
         KeyCode::BackTab | KeyCode::Up => Message::FormPrevField,
@@ -598,6 +619,8 @@ fn handle_clickable_element(
             Message::CopyField(*index)
         }
 
+        ClickableElement::DetailNotes => Message::FocusDetailNotes,
+
         ClickableElement::KindOption(index) => {
             // Clicking a kind option selects it
             Message::KindSelectorSelect(*index)
@@ -642,7 +665,12 @@ fn handle_clickable_element(
                 // Item detail buttons
                 "reveal" => Message::ToggleContentReveal,
                 "copy" => match state.ui_state.focused_pane {
-                    Pane::Detail => Message::CopyField(state.ui_state.detail_selected_field),
+                    Pane::Detail => {
+                        match state.ui_state.detail_focus {
+                            crate::app::state::DetailFocus::Field(idx) => Message::CopyField(idx),
+                            crate::app::state::DetailFocus::Notes => Message::CopyCurrentItem,
+                        }
+                    },
                     _ => Message::CopyCurrentItem,
                 },
                 "edit" => {
