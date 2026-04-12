@@ -73,6 +73,10 @@ impl ItemListState {
             })
             .map(|i| i.id)
             .collect();
+
+        if self.list_state.selected().is_none() && !self.visible_items.is_empty() {
+            self.list_state.select(Some(0));
+        }
     }
 
     /// Select an item by ID
@@ -204,7 +208,7 @@ pub fn render(
     let list = List::new(items)
         .block(block.clone())
         .highlight_style(theme.selected_style())
-        .highlight_symbol("▸ ");
+        .highlight_symbol("● ");
 
     frame.render_stateful_widget(list, area, &mut list_state.list_state);
 
