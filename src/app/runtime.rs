@@ -86,47 +86,61 @@ impl Runtime {
                 keyfile_path,
                 encryption_method,
                 draft_qs,
-            } => match create_new_vault(
-                &vault_name,
-                &password,
-                use_keyfile,
-                &keyfile_path,
-                encryption_method,
-                draft_qs,
-            ) {
-                Ok((vault, path, key, salt, has_keyfile, recovery_metadata, keyfile_message)) => {
-                    EffectResult::VaultCreated {
-                        vault,
-                        path,
-                        vault_name,
-                        key,
-                        salt,
-                        has_keyfile,
+            } => {
+                let tx = self.message_tx.clone();
+                std::thread::spawn(move || {
+                    let result = match create_new_vault(
+                        &vault_name,
+                        &password,
+                        use_keyfile,
+                        &keyfile_path,
                         encryption_method,
-                        recovery_metadata,
-                        keyfile_message,
-                    }
-                }
-                Err(e) => EffectResult::Error(e),
+                        draft_qs,
+                    ) {
+                        Ok((vault, path, key, salt, has_keyfile, recovery_metadata, keyfile_message)) => {
+                            EffectResult::VaultCreated {
+                                vault,
+                                path,
+                                vault_name,
+                                key,
+                                salt,
+                                has_keyfile,
+                                encryption_method,
+                                recovery_metadata,
+                                keyfile_message,
+                            }
+                        }
+                        Err(e) => EffectResult::Error(e),
+                    };
+                    let _ = tx.send(Message::AsyncEffectCompleted(Box::new(result)));
+                });
+                EffectResult::Success
             },
 
             Effect::ReadVaultFile {
                 path,
                 password,
                 keyfile,
-            } => match read_vault_file(&path, &password, keyfile.as_deref()) {
-                Ok((vault, key, salt, has_keyfile, encryption_method, recovery_metadata)) => {
-                    EffectResult::VaultLoaded {
-                        vault,
-                        path,
-                        key,
-                        salt,
-                        has_keyfile,
-                        encryption_method,
-                        recovery_metadata,
-                    }
-                }
-                Err(e) => EffectResult::Error(e),
+            } => {
+                let tx = self.message_tx.clone();
+                std::thread::spawn(move || {
+                    let result = match read_vault_file(&path, &password, keyfile.as_deref()) {
+                        Ok((vault, key, salt, has_keyfile, encryption_method, recovery_metadata)) => {
+                            EffectResult::VaultLoaded {
+                                vault,
+                                path,
+                                key,
+                                salt,
+                                has_keyfile,
+                                encryption_method,
+                                recovery_metadata,
+                            }
+                        }
+                        Err(e) => EffectResult::Error(e),
+                    };
+                    let _ = tx.send(Message::AsyncEffectCompleted(Box::new(result)));
+                });
+                EffectResult::Success
             },
 
             Effect::WriteVaultFile {

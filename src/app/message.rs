@@ -216,6 +216,10 @@ pub enum Message {
     ForceQuit,
     /// No operation
     Noop,
+
+    // === Async Runtime ===
+    /// An asynchronous effect completed
+    AsyncEffectCompleted(Box<super::effect::EffectResult>),
 }
 
 /// Updates to apply to an item

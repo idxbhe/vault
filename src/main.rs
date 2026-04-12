@@ -49,11 +49,11 @@ fn main() -> Result<()> {
     let keybindings = KeybindingConfig::default();
 
     // Create message channel for async effects
-    let (tx, _rx) = mpsc::channel::<Message>();
+    let (tx, rx) = mpsc::channel::<Message>();
     let mut runtime = vault::app::Runtime::new(tx);
 
     // Run the application
-    let result = run_app(&mut terminal, &mut app, &keybindings, &mut runtime);
+    let result = run_app(&mut terminal, &mut app, &keybindings, &mut runtime, rx);
 
     // Restore terminal
     disable_raw_mode()?;
@@ -77,6 +77,7 @@ fn run_app<B: ratatui::backend::Backend>(
     app: &mut App,
     keybindings: &KeybindingConfig,
     runtime: &mut vault::app::Runtime,
+    rx: std::sync::mpsc::Receiver<Message>,
 ) -> Result<()> {
     let mut last_tick = Instant::now();
 
@@ -121,6 +122,13 @@ fn run_app<B: ratatui::backend::Backend>(
                         handle_effect_result(app, result);
                     }
                 }
+            }
+        }
+
+        // Process any async messages
+        while let Ok(msg) = rx.try_recv() {
+            if let Message::AsyncEffectCompleted(boxed_result) = msg {
+                handle_effect_result(app, *boxed_result);
             }
         }
 

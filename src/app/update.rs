@@ -1586,6 +1586,11 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
         }
 
         Message::Noop => Effect::none(),
+
+        Message::AsyncEffectCompleted(_) => {
+            // Handled at the application loop level, but returns none here.
+            Effect::none()
+        }
     }
 }
 
