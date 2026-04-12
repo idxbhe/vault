@@ -295,6 +295,13 @@ impl Item {
             }
         }
 
+        fields.push((
+            "Notes".to_string(),
+            self.notes.clone().unwrap_or_else(|| "".to_string()),
+            false,
+            Some(FormField::Notes),
+        ));
+
         fields
     }
 

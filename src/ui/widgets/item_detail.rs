@@ -51,21 +51,10 @@ pub fn render(
 
     let revealed = state.ui_state.content_revealed;
 
-    // Split area for content, optional notes, and action buttons
-    let has_notes = item.notes.is_some();
-    let notes_height = if let Some(ref notes) = item.notes {
-        notes.lines().count() as u16 + 2 // Lines + borders
-    } else {
-        0
-    };
-
-    let mut constraints = vec![
+    let constraints = vec![
         Constraint::Min(5),    // Main content
+        Constraint::Length(1), // Action buttons
     ];
-    if has_notes {
-        constraints.push(Constraint::Length(notes_height));
-    }
-    constraints.push(Constraint::Length(1)); // Action buttons
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -83,20 +72,7 @@ pub fn render(
     frame.render_widget(block, area);
     frame.render_widget(paragraph, chunks[0]);
 
-    if let Some(ref notes) = item.notes {
-        let notes_block = Block::default()
-            .borders(Borders::ALL)
-            .border_type(ratatui::widgets::BorderType::Rounded)
-            .border_style(Style::default().fg(theme.border))
-            .title(ratatui::text::Line::from(" Notes ").alignment(ratatui::layout::Alignment::Center).style(Style::default().fg(theme.fg_muted)));
 
-        let notes_paragraph = Paragraph::new(notes.as_str())
-            .block(notes_block)
-            .style(Style::default().fg(theme.fg))
-            .wrap(Wrap { trim: false });
-
-        frame.render_widget(notes_paragraph, chunks[1]);
-    }
 
     // Register clickable fields
     let fields = item.get_fields();
@@ -114,8 +90,7 @@ pub fn render(
     }
 
     // Render action buttons (now includes keyboard hints in labels)
-    let buttons_chunk_idx = if has_notes { 2 } else { 1 };
-    render_action_buttons(frame, chunks[buttons_chunk_idx], state, revealed, theme);
+    render_action_buttons(frame, chunks[1], state, revealed, theme);
 }
 
 /// Build the detail lines for an item

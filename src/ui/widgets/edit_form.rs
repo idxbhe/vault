@@ -7,7 +7,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::Span,
-    widgets::{Block, Borders, Clear, Paragraph},
+    widgets::{Block, Borders, Clear, Paragraph, Wrap},
 };
 
 use crate::domain::ItemKind;
@@ -267,17 +267,43 @@ pub fn render(
     form_state: &EditFormState,
     theme: &ThemePalette,
 ) -> FormClickRegions {
-    let max_visible_fields = (area.height.saturating_sub(6) as usize) / 3;
-    let max_visible_fields = max_visible_fields.max(1); // At least 1 field
 
-    let start_idx = form_state.focused_field.saturating_sub(max_visible_fields / 2)
-        .min(form_state.fields.len().saturating_sub(max_visible_fields));
-    let end_idx = (start_idx + max_visible_fields).min(form_state.fields.len());
+    // Calculate heights dynamically
+    let mut field_heights = Vec::new();
+    for field in &form_state.fields {
+        let h = if *field == FormField::Notes { 8 } else { 3 };
+        field_heights.push(h);
+    }
+
+    // We want to make sure the focused field is visible.
+    let mut start_idx = form_state.focused_field;
+    let mut end_idx = start_idx + 1;
+    let mut current_height = field_heights[start_idx] + 6; // + 6 for borders & buttons
+
+    // Expand upwards and downwards as long as we fit in area.height
+    loop {
+        let can_expand_up = start_idx > 0 && current_height + field_heights[start_idx - 1] <= area.height;
+        let can_expand_down = end_idx < form_state.fields.len() && current_height + field_heights[end_idx] <= area.height;
+
+        if !can_expand_up && !can_expand_down {
+            break;
+        }
+
+        if can_expand_up && (!can_expand_down || form_state.focused_field - start_idx < end_idx - form_state.focused_field) {
+            start_idx -= 1;
+            current_height += field_heights[start_idx];
+        } else if can_expand_down {
+            current_height += field_heights[end_idx];
+            end_idx += 1;
+        }
+    }
+
     let visible_fields = &form_state.fields[start_idx..end_idx];
+    let visible_heights = &field_heights[start_idx..end_idx];
 
     // Calculate form dimensions
     let form_width = area.width.min(70);
-    let form_height = (visible_fields.len() as u16 * 3 + 6).min(area.height);
+    let form_height = current_height.min(area.height);
     let x = (area.width.saturating_sub(form_width)) / 2;
     let y = (area.height.saturating_sub(form_height)) / 2;
 
@@ -333,7 +359,8 @@ pub fn render(
     // Layout for fields + buttons (hints now embedded in buttons)
     let mut constraints: Vec<Constraint> = visible_fields
         .iter()
-        .map(|_| Constraint::Length(3))
+        .zip(visible_heights.iter())
+        .map(|(_, &h)| Constraint::Length(h))
         .collect();
     constraints.push(Constraint::Min(1)); // Buttons with embedded hints
 
@@ -421,7 +448,7 @@ fn render_field(
         display_value
     };
 
-    let paragraph = Paragraph::new(text)
+    let mut paragraph = Paragraph::new(text)
         .style(Style::default().fg(theme.fg))
         .block(
             Block::default()
@@ -437,6 +464,10 @@ fn render_field(
                     }),
                 )),
         );
+
+    if *field == FormField::Notes {
+        paragraph = paragraph.wrap(Wrap { trim: false });
+    }
 
     frame.render_widget(paragraph, area);
 }
