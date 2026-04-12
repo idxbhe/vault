@@ -409,13 +409,8 @@ pub fn render(frame: &mut Frame, state: &mut AppState, theme: &ThemePalette) {
     let entering_password = state.login_screen.entering_password;
     let entering_keyfile_path = state.login_screen.entering_keyfile_path;
     let creating_vault = state.login_screen.creating_vault;
-    let is_loading = state.ui_state.is_loading();
     render_content(frame, chunks[1], state, theme);
 
-    // Render loading overlay if loading
-    if is_loading {
-        render_loading_overlay(frame, area, state, theme);
-    }
 
     // Render floating windows if any
     if let Some(window) = state.ui_state.floating_window.clone() {
@@ -683,23 +678,28 @@ fn render_password_form(
 
     frame.render_widget(input, chunks[1]);
 
-    // Render cursor (display() returns masked chars, but cursor position is still correct)
-    let cursor_x = chunks[1].x + 1 + state.ui_state.input_buffer.cursor as u16;
-    let cursor_y = chunks[1].y + 1;
-    frame.set_cursor_position((cursor_x, cursor_y));
+    if state.ui_state.is_loading() {
+        let loading_para = create_inline_loading_paragraph(state, theme);
+        frame.render_widget(loading_para, chunks[2]);
+    } else {
+        // Render cursor (display() returns masked chars, but cursor position is still correct)
+        let cursor_x = chunks[1].x + 1 + state.ui_state.input_buffer.cursor as u16;
+        let cursor_y = chunks[1].y + 1;
+        frame.set_cursor_position((cursor_x, cursor_y));
 
-    // Error message
-    if let Some(ref error) = error_message {
-        let error_text = Paragraph::new(Line::from(vec![
-            Span::styled(
-                format!("{} ", icons::ui::ERROR),
-                Style::default().fg(theme.error),
-            ),
-            Span::styled(error.clone(), Style::default().fg(theme.error)),
-        ]))
-        .alignment(Alignment::Center);
+        // Error message
+        if let Some(ref error) = error_message {
+            let error_text = Paragraph::new(Line::from(vec![
+                Span::styled(
+                    format!("{} ", icons::ui::ERROR),
+                    Style::default().fg(theme.error),
+                ),
+                Span::styled(error.clone(), Style::default().fg(theme.error)),
+            ]))
+            .alignment(Alignment::Center);
 
-        frame.render_widget(error_text, chunks[2]);
+            frame.render_widget(error_text, chunks[2]);
+        }
     }
 }
 
@@ -780,21 +780,26 @@ fn render_keyfile_form(
 
     frame.render_widget(input, chunks[1]);
 
-    let cursor_x = chunks[1].x + 1 + state.ui_state.input_buffer.cursor as u16;
-    let cursor_y = chunks[1].y + 1;
-    frame.set_cursor_position((cursor_x, cursor_y));
+    if state.ui_state.is_loading() {
+        let loading_para = create_inline_loading_paragraph(state, theme);
+        frame.render_widget(loading_para, chunks[2]);
+    } else {
+        let cursor_x = chunks[1].x + 1 + state.ui_state.input_buffer.cursor as u16;
+        let cursor_y = chunks[1].y + 1;
+        frame.set_cursor_position((cursor_x, cursor_y));
 
-    if let Some(ref error) = error_message {
-        let error_text = Paragraph::new(Line::from(vec![
-            Span::styled(
-                format!("{} ", icons::ui::ERROR),
-                Style::default().fg(theme.error),
-            ),
-            Span::styled(error.clone(), Style::default().fg(theme.error)),
-        ]))
-        .alignment(Alignment::Center);
+        if let Some(ref error) = error_message {
+            let error_text = Paragraph::new(Line::from(vec![
+                Span::styled(
+                    format!("{} ", icons::ui::ERROR),
+                    Style::default().fg(theme.error),
+                ),
+                Span::styled(error.clone(), Style::default().fg(theme.error)),
+            ]))
+            .alignment(Alignment::Center);
 
-        frame.render_widget(error_text, chunks[2]);
+            frame.render_widget(error_text, chunks[2]);
+        }
     }
 }
 
@@ -1080,7 +1085,7 @@ fn render_create_vault_form(
                 .block(input_block.clone());
             frame.render_widget(input_para, layout[current_layout_idx]);
 
-            if is_focused {
+            if is_focused && !state.ui_state.is_loading() {
                 let cursor_x = layout[current_layout_idx].x + 1 + buffer.cursor as u16;
                 let cursor_y = layout[current_layout_idx].y + 1;
                 frame.set_cursor_position((cursor_x, cursor_y));
@@ -1166,10 +1171,13 @@ fn render_create_vault_form(
     }
 
     let error_layout_idx = layout.len() - 1;
+    let error_rect = layout[error_layout_idx];
 
-    // Render error message
-    if let Some(ref error) = error_message {
-        let error_rect = layout[error_layout_idx];
+    // Render error message or loading indicator
+    if state.ui_state.is_loading() {
+        let loading_para = create_inline_loading_paragraph(state, theme);
+        frame.render_widget(loading_para, error_rect);
+    } else if let Some(ref error) = error_message {
         let error_text = ratatui::widgets::Paragraph::new(ratatui::text::Line::from(vec![
             ratatui::text::Span::styled(
                 format!("{} ", icons::ui::ERROR),
@@ -1273,7 +1281,7 @@ fn render_password_recovery_form(
         );
     frame.render_widget(input, chunks[2]);
 
-    if !session.is_complete() && !session.is_locked_out() {
+    if !session.is_complete() && !session.is_locked_out() && !state.ui_state.is_loading() {
         let cursor_x = chunks[2].x + 1 + state.ui_state.input_buffer.cursor as u16;
         let cursor_y = chunks[2].y + 1;
         frame.set_cursor_position((cursor_x, cursor_y));
@@ -1295,15 +1303,20 @@ fn render_password_recovery_form(
         .style(Style::default().fg(theme.fg));
     frame.render_widget(reveal_para, chunks[3]);
 
-    let attempts = format!(
-        "Attempts remaining: {} / {}",
-        session.remaining_attempts(),
-        session.metadata.max_attempts
-    );
-    let attempts_para = Paragraph::new(attempts)
-        .alignment(Alignment::Center)
-        .style(Style::default().fg(theme.warning));
-    frame.render_widget(attempts_para, chunks[4]);
+    if state.ui_state.is_loading() {
+        let loading_para = create_inline_loading_paragraph(state, theme);
+        frame.render_widget(loading_para, chunks[4]);
+    } else {
+        let attempts = format!(
+            "Attempts remaining: {} / {}",
+            session.remaining_attempts(),
+            session.metadata.max_attempts
+        );
+        let attempts_para = Paragraph::new(attempts)
+            .alignment(Alignment::Center)
+            .style(Style::default().fg(theme.warning));
+        frame.render_widget(attempts_para, chunks[4]);
+    }
 }
 
 /// Render the footer with keybinding hints
@@ -1461,61 +1474,6 @@ fn create_block<'a>(title: &'a str, theme: &ThemePalette) -> Block<'a> {
 }
 
 /// Render loading overlay
-fn render_loading_overlay(frame: &mut Frame, area: Rect, state: &AppState, theme: &ThemePalette) {
-    // Semi-transparent overlay
-    let overlay = Block::default().style(Style::default().bg(theme.bg_alt));
-    frame.render_widget(overlay, area);
-
-    // Center the loading message
-    let loading_width = 50;
-    let loading_height = 5;
-    let loading_x = (area.width.saturating_sub(loading_width)) / 2;
-    let loading_y = (area.height.saturating_sub(loading_height)) / 2;
-
-    let loading_area = Rect {
-        x: area.x + loading_x,
-        y: area.y + loading_y,
-        width: loading_width,
-        height: loading_height,
-    };
-
-    // Loading box
-    let loading_block = Block::default()
-        .borders(Borders::ALL)
-        .border_type(ratatui::widgets::BorderType::Rounded)
-        .border_style(Style::default().fg(theme.accent))
-        .style(Style::default().bg(theme.bg));
-
-    frame.render_widget(Clear, loading_area);
-    frame.render_widget(loading_block, loading_area);
-
-    // Loading content
-    let inner = loading_area.inner(ratatui::layout::Margin::new(2, 1));
-
-    let spinner = state.ui_state.spinner_char();
-    let message = state
-        .ui_state
-        .loading_message
-        .as_deref()
-        .unwrap_or("Loading...");
-
-    let loading_text = vec![
-        Line::from(""),
-        Line::from(vec![
-            Span::styled(
-                format!("{} ", spinner),
-                Style::default()
-                    .fg(theme.accent)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(message, Style::default().fg(theme.fg)),
-        ]),
-    ];
-
-    let loading_para = Paragraph::new(loading_text).alignment(Alignment::Center);
-
-    frame.render_widget(loading_para, inner);
-}
 
 #[cfg(test)]
 mod tests {
@@ -1647,4 +1605,38 @@ fn render_floating_window(
         }
 
     }
+}
+
+fn create_inline_loading_paragraph<'a>(
+    state: &'a AppState,
+    theme: &'a ThemePalette,
+) -> Paragraph<'a> {
+    let message = state
+        .ui_state
+        .loading_message
+        .as_deref()
+        .unwrap_or("Loading...");
+
+    let spinner_frame = state.ui_state.spinner_frame % 5;
+    let mut spans = vec![];
+    for i in 0..5 {
+        if i == spinner_frame {
+            spans.push(Span::styled(
+                "●",
+                Style::default().fg(theme.accent),
+            ));
+        } else {
+            spans.push(Span::styled(
+                "●",
+                Style::default().fg(theme.fg_muted),
+            ));
+        }
+    }
+
+    spans.push(Span::styled(
+        format!(" {}", message),
+        Style::default().fg(theme.fg),
+    ));
+
+    Paragraph::new(Line::from(spans)).alignment(Alignment::Center)
 }
