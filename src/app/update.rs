@@ -1602,10 +1602,16 @@ fn select_adjacent_item(state: &mut AppState, delta: i32) {
         .iter()
         .filter(|item| {
             // Kind filter
-            if let Some(kind) = state.ui_state.filter.kind
-                && item.kind != kind
-            {
-                return false;
+            if let Some(kind) = state.ui_state.filter.kind {
+                let mut matches_kind = item.kind == kind;
+                if !matches_kind && kind == ItemKind::Totp && item.kind == ItemKind::Password {
+                    if let crate::domain::ItemContent::Password { totp_secret: Some(_), .. } = &item.content {
+                        matches_kind = true;
+                    }
+                }
+                if !matches_kind {
+                    return false;
+                }
             }
             // Tag filter
             if !state.ui_state.filter.tags.is_empty()
