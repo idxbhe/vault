@@ -587,7 +587,7 @@ fn create_vault_list_item<'a>(
         Style::default().fg(theme.fg)
     };
 
-    let selector = if selected { "▸ " } else { "  " };
+    let selector = if selected { "● " } else { "  " };
 
     let line = Line::from(vec![
         Span::styled(selector.to_string(), style),
@@ -661,27 +661,27 @@ fn render_password_form(
 
     frame.render_widget(title, chunks[0]);
 
-    // Password input
-    let password_display = state.ui_state.input_buffer.display();
-    let input = Paragraph::new(password_display)
-        .style(Style::default().fg(theme.fg))
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(theme.border_focused))
-                .border_type(ratatui::widgets::BorderType::Rounded)
-                .title(Span::styled(
-                    " Password ",
-                    Style::default().fg(theme.accent),
-                )),
-        );
-
-    frame.render_widget(input, chunks[1]);
-
     if state.ui_state.is_loading() {
         let loading_para = create_inline_loading_paragraph(state, theme);
-        frame.render_widget(loading_para, chunks[2]);
+        frame.render_widget(loading_para, chunks[1]);
     } else {
+        // Password input
+        let password_display = state.ui_state.input_buffer.display();
+        let input = Paragraph::new(password_display)
+            .style(Style::default().fg(theme.fg))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(theme.border_focused))
+                    .border_type(ratatui::widgets::BorderType::Rounded)
+                    .title(Span::styled(
+                        " Password ",
+                        Style::default().fg(theme.accent),
+                    )),
+            );
+
+        frame.render_widget(input, chunks[1]);
+
         // Render cursor (display() returns masked chars, but cursor position is still correct)
         let cursor_x = chunks[1].x + 1 + state.ui_state.input_buffer.cursor as u16;
         let cursor_y = chunks[1].y + 1;
@@ -1617,7 +1617,10 @@ fn create_inline_loading_paragraph<'a>(
         .as_deref()
         .unwrap_or("Loading...");
 
-    let spinner_frame = state.ui_state.spinner_frame % 5;
+    // Calculate spinner frame dynamically using system time so it animates
+    let now = chrono::Utc::now().timestamp_millis();
+    let spinner_frame = ((now / 200) % 5) as u8;
+
     let mut spans = vec![];
     for i in 0..5 {
         let char_str = if i == 4 { "●" } else { "● " };

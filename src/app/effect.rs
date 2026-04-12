@@ -127,7 +127,7 @@ impl Effect {
 }
 
 /// Result of executing an effect
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum EffectResult {
     /// Effect completed successfully
     Success,
