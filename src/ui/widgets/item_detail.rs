@@ -51,13 +51,25 @@ pub fn render(
 
     let revealed = state.ui_state.content_revealed;
 
-    // Split area for content and action buttons (hints now embedded in buttons)
+    // Split area for content, optional notes, and action buttons
+    let has_notes = item.notes.is_some();
+    let notes_height = if let Some(ref notes) = item.notes {
+        notes.lines().count() as u16 + 2 // Lines + borders
+    } else {
+        0
+    };
+
+    let mut constraints = vec![
+        Constraint::Min(5),    // Main content
+    ];
+    if has_notes {
+        constraints.push(Constraint::Length(notes_height));
+    }
+    constraints.push(Constraint::Length(1)); // Action buttons
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Min(5),    // Main content
-            Constraint::Length(1), // Action buttons with embedded hints
-        ])
+        .constraints(constraints)
         .split(block.inner(area));
 
     let selected_field_idx = state.ui_state.detail_selected_field;
@@ -70,6 +82,21 @@ pub fn render(
 
     frame.render_widget(block, area);
     frame.render_widget(paragraph, chunks[0]);
+
+    if let Some(ref notes) = item.notes {
+        let notes_block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_style(Style::default().fg(theme.border))
+            .title(ratatui::text::Line::from(" Notes ").alignment(ratatui::layout::Alignment::Center).style(Style::default().fg(theme.fg_muted)));
+
+        let notes_paragraph = Paragraph::new(notes.as_str())
+            .block(notes_block)
+            .style(Style::default().fg(theme.fg))
+            .wrap(Wrap { trim: false });
+
+        frame.render_widget(notes_paragraph, chunks[1]);
+    }
 
     // Register clickable fields
     let fields = item.get_fields();
@@ -87,7 +114,8 @@ pub fn render(
     }
 
     // Render action buttons (now includes keyboard hints in labels)
-    render_action_buttons(frame, chunks[1], state, revealed, theme);
+    let buttons_chunk_idx = if has_notes { 2 } else { 1 };
+    render_action_buttons(frame, chunks[buttons_chunk_idx], state, revealed, theme);
 }
 
 /// Build the detail lines for an item
@@ -131,25 +159,6 @@ fn build_detail_lines<'a>(
         selected_field_idx,
         is_focused,
     ));
-
-    // Notes section
-    if let Some(ref notes) = item.notes {
-        lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled(
-            "╭─ Notes",
-            Style::default().fg(theme.fg_muted),
-        )));
-        for line in notes.lines() {
-            lines.push(Line::from(Span::styled(
-                format!("│ {}", line),
-                Style::default().fg(theme.fg),
-            )));
-        }
-        lines.push(Line::from(Span::styled(
-            "╰─",
-            Style::default().fg(theme.fg_muted),
-        )));
-    }
 
     // Tags section
     if !item.tags.is_empty() {
@@ -205,7 +214,7 @@ fn build_content_section<'a>(
     for (idx, (label, value, is_sensitive, _)) in fields.iter().enumerate() {
         let is_selected = is_focused && idx == selected_field_idx;
 
-        let display_value = if *is_sensitive {
+        let mut display_value = if *is_sensitive {
             if !revealed || (is_focused && idx != selected_field_idx) {
                 mask::mask_content(value)
             } else {
@@ -214,6 +223,10 @@ fn build_content_section<'a>(
         } else {
             value.to_string()
         };
+
+        if display_value.is_empty() {
+            display_value = "-".to_string();
+        }
 
         let bg_color = if is_selected {
             theme.selection_bg

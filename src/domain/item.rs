@@ -164,22 +164,18 @@ impl Item {
                     true,
                     Some(FormField::SeedPhrase),
                 ));
-                if let Some(dp) = derivation_path {
-                    fields.push((
-                        "Derivation Path".to_string(),
-                        dp.to_string(),
-                        false,
-                        Some(FormField::DerivationPath),
-                    ));
-                }
-                if let Some(net) = network {
-                    fields.push((
-                        "Network".to_string(),
-                        net.to_string(),
-                        false,
-                        Some(FormField::Network),
-                    ));
-                }
+                fields.push((
+                    "Derivation Path".to_string(),
+                    derivation_path.as_deref().unwrap_or("").to_string(),
+                    false,
+                    Some(FormField::DerivationPath),
+                ));
+                fields.push((
+                    "Network".to_string(),
+                    network.as_deref().unwrap_or("").to_string(),
+                    false,
+                    Some(FormField::Network),
+                ));
             }
             ItemContent::Password {
                 username,
@@ -187,28 +183,24 @@ impl Item {
                 url,
                 totp_secret,
             } => {
-                if let Some(user) = username {
-                    fields.push((
-                        "Username".to_string(),
-                        user.to_string(),
-                        false,
-                        Some(FormField::Username),
-                    ));
-                }
+                fields.push((
+                    "Username".to_string(),
+                    username.as_deref().unwrap_or("").to_string(),
+                    false,
+                    Some(FormField::Username),
+                ));
                 fields.push((
                     "Password".to_string(),
                     password.to_string(),
                     true,
                     Some(FormField::Password),
                 ));
-                if let Some(u) = url {
-                    fields.push((
-                        "URL".to_string(),
-                        u.to_string(),
-                        false,
-                        Some(FormField::Url),
-                    ));
-                }
+                fields.push((
+                    "URL".to_string(),
+                    url.as_deref().unwrap_or("").to_string(),
+                    false,
+                    Some(FormField::Url),
+                ));
                 if let Some(totp) = totp_secret {
                     let totp_val = generate_totp_code(totp);
                     fields.push((
@@ -238,37 +230,36 @@ impl Item {
                 service,
                 expires_at,
             } => {
-                if let Some(svc) = service {
-                    fields.push((
-                        "Service".to_string(),
-                        svc.to_string(),
-                        false,
-                        Some(FormField::Service),
-                    ));
-                }
+                fields.push((
+                    "Service".to_string(),
+                    service.as_deref().unwrap_or("").to_string(),
+                    false,
+                    Some(FormField::Service),
+                ));
                 fields.push((
                     "API Key".to_string(),
                     key.to_string(),
                     true,
                     Some(FormField::ApiKey),
                 ));
-                if let Some(exp) = expires_at {
-                    fields.push(("Expires".to_string(), exp.to_rfc3339(), false, None)); // no exp form field
-                }
+                fields.push((
+                    "Expires".to_string(),
+                    expires_at.map(|e| e.to_rfc3339()).unwrap_or_else(|| "".to_string()),
+                    false,
+                    None
+                )); // no exp form field
             }
             ItemContent::Totp {
                 issuer,
                 account_name,
                 secret,
             } => {
-                if let Some(iss) = issuer {
-                    fields.push((
-                        "Issuer".to_string(),
-                        iss.to_string(),
-                        false,
-                        Some(FormField::Issuer),
-                    ));
-                }
+                fields.push((
+                    "Issuer".to_string(),
+                    issuer.as_deref().unwrap_or("").to_string(),
+                    false,
+                    Some(FormField::Issuer),
+                ));
                 fields.push((
                     "Account Name".to_string(),
                     account_name.to_string(),
