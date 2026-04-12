@@ -1620,23 +1620,25 @@ fn create_inline_loading_paragraph<'a>(
     let spinner_frame = state.ui_state.spinner_frame % 5;
     let mut spans = vec![];
     for i in 0..5 {
+        let char_str = if i == 4 { "●" } else { "● " };
         if i == spinner_frame {
             spans.push(Span::styled(
-                "●",
+                char_str,
                 Style::default().fg(theme.accent),
             ));
         } else {
             spans.push(Span::styled(
-                "●",
+                char_str,
                 Style::default().fg(theme.fg_muted),
             ));
         }
     }
 
-    spans.push(Span::styled(
-        format!(" {}", message),
+    let dots_line = Line::from(spans).alignment(Alignment::Center);
+    let msg_line = Line::from(Span::styled(
+        message,
         Style::default().fg(theme.fg),
-    ));
+    )).alignment(Alignment::Center);
 
-    Paragraph::new(Line::from(spans)).alignment(Alignment::Center)
+    Paragraph::new(vec![dots_line, msg_line]).alignment(Alignment::Center)
 }
