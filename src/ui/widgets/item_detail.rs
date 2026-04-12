@@ -53,17 +53,12 @@ pub fn render(
 
     // Split area for content, optional notes, and action buttons
     let has_notes = item.notes.is_some();
-    let notes_height = if let Some(ref notes) = item.notes {
-        notes.lines().count() as u16 + 2 // Lines + borders
-    } else {
-        0
-    };
 
     let mut constraints = vec![
         Constraint::Min(5),    // Main content
     ];
     if has_notes {
-        constraints.push(Constraint::Length(notes_height));
+        constraints.push(Constraint::Min(5));
     }
     constraints.push(Constraint::Length(1)); // Action buttons
 
@@ -72,9 +67,8 @@ pub fn render(
         .constraints(constraints)
         .split(block.inner(area));
 
-    let selected_field_idx = state.ui_state.detail_selected_field;
     let is_focused = state.ui_state.focused_pane == crate::app::Pane::Detail;
-    let lines = build_detail_lines(&item, tags, revealed, theme, selected_field_idx, is_focused);
+    let lines = build_detail_lines(&item, tags, revealed, theme, state.ui_state.detail_focus, is_focused);
 
     let paragraph = Paragraph::new(lines)
         .wrap(Wrap { trim: false })
@@ -84,18 +78,31 @@ pub fn render(
     frame.render_widget(paragraph, chunks[0]);
 
     if let Some(ref notes) = item.notes {
+        let notes_is_focused = is_focused && state.ui_state.detail_focus == crate::app::state::DetailFocus::Notes;
+        let notes_border_color = if notes_is_focused {
+            theme.border_focused
+        } else {
+            theme.border
+        };
+
         let notes_block = Block::default()
             .borders(Borders::ALL)
             .border_type(ratatui::widgets::BorderType::Rounded)
-            .border_style(Style::default().fg(theme.border))
+            .border_style(Style::default().fg(notes_border_color))
             .title(ratatui::text::Line::from(" Notes ").alignment(ratatui::layout::Alignment::Center).style(Style::default().fg(theme.fg_muted)));
 
         let notes_paragraph = Paragraph::new(notes.as_str())
             .block(notes_block)
             .style(Style::default().fg(theme.fg))
-            .wrap(Wrap { trim: false });
+            .wrap(Wrap { trim: false })
+            .scroll((state.ui_state.notes_scroll_offset, 0));
 
         frame.render_widget(notes_paragraph, chunks[1]);
+
+        state.ui_state.layout_regions.register_clickable(
+            crate::input::mouse::ClickRegion::new(chunks[1].x, chunks[1].y, chunks[1].width, chunks[1].height),
+            crate::input::mouse::ClickableElement::DetailNotes,
+        );
     }
 
     // Register clickable fields
@@ -124,7 +131,7 @@ fn build_detail_lines<'a>(
     tags: &[Tag],
     revealed: bool,
     theme: &'a ThemePalette,
-    selected_field_idx: usize,
+    detail_focus: crate::app::state::DetailFocus,
     is_focused: bool,
 ) -> Vec<Line<'a>> {
     let mut lines = vec![];
@@ -156,7 +163,7 @@ fn build_detail_lines<'a>(
         item,
         revealed,
         theme,
-        selected_field_idx,
+        detail_focus,
         is_focused,
     ));
 
@@ -205,17 +212,17 @@ fn build_content_section<'a>(
     item: &Item,
     revealed: bool,
     theme: &'a ThemePalette,
-    selected_field_idx: usize,
+    detail_focus: crate::app::state::DetailFocus,
     is_focused: bool,
 ) -> Vec<Line<'a>> {
     let mut lines = vec![];
     let fields = item.get_fields();
 
     for (idx, (label, value, is_sensitive, _)) in fields.iter().enumerate() {
-        let is_selected = is_focused && idx == selected_field_idx;
+        let is_selected = is_focused && detail_focus == crate::app::state::DetailFocus::Field(idx);
 
         let mut display_value = if *is_sensitive {
-            if !revealed || (is_focused && idx != selected_field_idx) {
+            if !revealed || !is_selected {
                 mask::mask_content(value)
             } else {
                 value.to_string()

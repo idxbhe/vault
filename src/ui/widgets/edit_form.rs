@@ -7,7 +7,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::Span,
-    widgets::{Block, Borders, Clear, Paragraph},
+    widgets::{Block, Borders, Clear, Paragraph, Wrap},
 };
 
 use crate::domain::ItemKind;
@@ -84,6 +84,8 @@ pub struct EditFormState {
     pub cursor: usize,
     /// Whether this is a new item (vs editing existing)
     pub is_new: bool,
+    /// If Some, restricts the form to editing only this specific field
+    pub target_field: Option<FormField>,
 }
 
 impl EditFormState {
@@ -99,6 +101,7 @@ impl EditFormState {
             focused_field: 0,
             cursor: 0,
             is_new,
+            target_field: None,
         }
     }
 
@@ -270,14 +273,27 @@ pub fn render(
     let max_visible_fields = (area.height.saturating_sub(6) as usize) / 3;
     let max_visible_fields = max_visible_fields.max(1); // At least 1 field
 
-    let start_idx = form_state.focused_field.saturating_sub(max_visible_fields / 2)
-        .min(form_state.fields.len().saturating_sub(max_visible_fields));
-    let end_idx = (start_idx + max_visible_fields).min(form_state.fields.len());
-    let visible_fields = &form_state.fields[start_idx..end_idx];
+    let is_single_field = form_state.target_field.is_some();
+
+    let (start_idx, end_idx, visible_fields) = if is_single_field {
+        let idx = form_state.focused_field;
+        (idx, idx + 1, &form_state.fields[idx..=idx])
+    } else {
+        let start_idx = form_state.focused_field.saturating_sub(max_visible_fields / 2)
+            .min(form_state.fields.len().saturating_sub(max_visible_fields));
+        let end_idx = (start_idx + max_visible_fields).min(form_state.fields.len());
+        (start_idx, end_idx, &form_state.fields[start_idx..end_idx])
+    };
 
     // Calculate form dimensions
     let form_width = area.width.min(70);
-    let form_height = (visible_fields.len() as u16 * 3 + 6).min(area.height);
+    let mut form_height = (visible_fields.len() as u16 * 3 + 6).min(area.height);
+
+    // Notes field needs more space if it's the only one shown
+    if is_single_field && visible_fields[0] == FormField::Notes {
+        form_height = area.height.min(20).max(form_height);
+    }
+
     let x = (area.width.saturating_sub(form_width)) / 2;
     let y = (area.height.saturating_sub(form_height)) / 2;
 
@@ -293,6 +309,12 @@ pub fn render(
             icons::ui::ADD,
             form_state.kind.display_name()
         )
+    } else if is_single_field {
+        format!(
+            " {} Edit {} ",
+            icons::ui::EDIT,
+            visible_fields[0].label()
+        )
     } else {
         format!(
             " {} Edit {} ",
@@ -301,7 +323,7 @@ pub fn render(
         )
     };
 
-    if start_idx > 0 {
+    if !is_single_field && start_idx > 0 {
         title = format!("{} ↑ ", title);
     }
 
@@ -317,7 +339,7 @@ pub fn render(
         ))
         .style(Style::default().bg(theme.bg));
 
-    if end_idx < form_state.fields.len() {
+    if !is_single_field && end_idx < form_state.fields.len() {
         use ratatui::text::Line;
         block = block.title_bottom(
             Line::from(vec![Span::styled(
@@ -333,7 +355,13 @@ pub fn render(
     // Layout for fields + buttons (hints now embedded in buttons)
     let mut constraints: Vec<Constraint> = visible_fields
         .iter()
-        .map(|_| Constraint::Length(3))
+        .map(|f| {
+            if is_single_field && *f == FormField::Notes {
+                Constraint::Min(5)
+            } else {
+                Constraint::Length(3)
+            }
+        })
         .collect();
     constraints.push(Constraint::Min(1)); // Buttons with embedded hints
 
@@ -436,7 +464,8 @@ fn render_field(
                         theme.fg_muted
                     }),
                 )),
-        );
+        )
+        .wrap(Wrap { trim: false });
 
     frame.render_widget(paragraph, area);
 }
