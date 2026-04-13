@@ -1,0 +1,9 @@
+[workspace]
+publish = false
+git_release = true
+allow_dirty = false
+# Menetapkan 'stg' sebagai release_branch
+release_branch = "stg"
+
+[changelog]
+# Pengaturan changelog default

@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 description = "TUI Vault Manager - Secure storage for sensitive data"
 license = "MIT"
+publish = false
 
 [features]
 default = ["clipboard"]
