@@ -8,6 +8,10 @@ on:
 permissions:
   contents: write
 
+env:
+  # Memaksa penggunaan Node.js 24 untuk menghilangkan warning deprecation
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build:
     name: Build - ${{ matrix.platform.os-name }}

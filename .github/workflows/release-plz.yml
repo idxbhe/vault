@@ -9,6 +9,10 @@ permissions:
   contents: write
   pull-requests: write
 
+env:
+  # Memaksa penggunaan Node.js 24 untuk menghilangkan warning deprecation
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   release-plz:
     name: Release-plz
@@ -33,5 +37,4 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          # Perintah 'release' dengan argumen eksplisit untuk branch rilis
           command: release --release-branch stg
