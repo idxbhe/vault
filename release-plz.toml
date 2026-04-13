@@ -1,9 +1,8 @@
 [workspace]
-publish = false
-git_release = true
+publish = false # Jangan rilis ke crates.io
 allow_dirty = false
-# Menetapkan 'stg' sebagai release_branch
-release_branch = "stg"
 
-[changelog]
-# Pengaturan changelog default
+# Konfigurasi spesifik paket (nama paket diambil dari Cargo.toml)
+[[package]]
+name = "vault"
+git_release = true # Membuat GitHub Release

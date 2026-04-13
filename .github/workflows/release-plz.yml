@@ -33,7 +33,5 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          # Langkah 1: Update versi & changelog di file lokal
-          # Langkah 2: Commit balik ke branch 'stg'
-          # Langkah 3: Buat Git Tag & GitHub Release
-          command: release
+          # Perintah 'release' dengan argumen eksplisit untuk branch rilis
+          command: release --release-branch stg
