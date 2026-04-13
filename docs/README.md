@@ -13,6 +13,7 @@ Selamat datang di dokumentasi lengkap **Vault TUI Manager** - aplikasi terminal 
 
 ### Panduan Teknis
 - [Arsitektur](./technical/architecture.md) - Desain sistem dan pola arsitektur
+- [Alur Kerja (Workflow)](./technical/workflow.md) - Penjelasan alur kerja dan fitur "Auto-Save"
 - [Struktur Proyek](./technical/project-structure.md) - Organisasi kode dan modul
 - [Keamanan](./technical/security.md) - Implementasi kriptografi dan keamanan
 - [Format File](./technical/file-format.md) - Spesifikasi format file vault

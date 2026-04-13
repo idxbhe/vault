@@ -409,28 +409,37 @@ pub struct UIState {
    - Test error handling (wrong password)
    - Test memory cleanup
 
-## Known Limitations
+## Pelaporan Kerentanan
 
-1. **No Protection Against:**
-   - Keyloggers (password entry)
-   - Screen capture (saat reveal)
-   - Memory forensics (saat unlocked)
-   - Physical access to unlocked vault
+Jika Anda menemukan kerentanan keamanan, harap:
 
-2. **Password Recovery:**
-   - Tidak ada recovery jika lupa password
-   - Security questions adalah fallback, bukan recovery
+1. **Jangan** membuka issue publik.
+2. Kirimkan detail keamanan melalui email ke maintainer.
+3. Sertakan:
+   - Deskripsi kerentanan
+   - Langkah-langkah untuk mereproduksi
+   - Dampak potensial
+   - Saran perbaikan (jika ada)
 
-3. **Side Channels:**
-   - Timing attacks partially mitigated
-   - Power analysis tidak addressed
+## Dependensi
 
-## Security Audit
+Dependensi kritis keamanan yang digunakan:
 
-Vault belum di-audit oleh pihak ketiga. Gunakan dengan risiko sendiri untuk data sangat sensitif.
+| Crate | Kegunaan | Catatan |
+|-------|----------|---------|
+| `aes-gcm` | Enkripsi | Implementasi RustCrypto |
+| `argon2` | KDF | Implementasi RustCrypto |
+| `zeroize` | Memory safety | Menjamin zeroing saat drop |
+| `rand` | RNG | OS-backed CSPRNG |
 
-### Recommendations
+Semua implementasi kriptografi berasal dari proyek [RustCrypto](https://github.com/RustCrypto).
 
-1. Untuk data sangat sensitif, gunakan hardware wallet atau HSM
-2. Vault cocok untuk password management day-to-day
-3. Pertimbangkan threat model Anda sebelum menyimpan data
+## Riwayat Versi
+
+| Versi | Perubahan |
+|-------|-----------|
+| 0.1.0 | Rilis awal |
+
+## Pertanyaan
+
+Untuk pertanyaan terkait keamanan, harap tinjau dokumen ini terlebih dahulu, kemudian hubungi maintainer jika diperlukan klarifikasi lebih lanjut.

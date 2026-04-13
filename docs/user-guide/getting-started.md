@@ -143,6 +143,35 @@ Setelah vault terbuka, Anda akan melihat layout utama:
 | `Esc` | Kembali / Batal |
 | `q` | Keluar dari aplikasi |
 
+## Vault Pengujian
+
+Untuk keperluan pengembangan dan pengujian, terdapat vault yang sudah dikonfigurasi:
+
+1. **test2** - Password: `sudounlock`
+2. **Test Vault** - Password: `testpass123`
+
+## Perilaku yang Diharapkan
+
+1. Pilih vault → Muncul kolom password.
+2. Ketik password → Terlihat karakter pelindung (bullet: •).
+3. Tekan Enter → Muncul indikator loading: "⠋ Unlocking vault...".
+4. Vault terbuka → Layar utama muncul.
+
+**Jika Password Salah:**
+- Pesan error akan muncul.
+- Mulai mengetik password baru → Pesan error langsung hilang.
+
+## Verifikasi
+
+Untuk memverifikasi instalasi dan fungsionalitas:
+
+```bash
+# Jalankan semua pengujian
+cargo test --release
+```
+
+Lokasi biner: `target/release/vault` (~3.3MB)
+
 ## Langkah Selanjutnya
 
 - [Referensi Keybinding](./keybindings.md) - Pelajari semua shortcut
