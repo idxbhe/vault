@@ -361,7 +361,7 @@ fn route_floating_window_key(
         FloatingWindow::Help => route_help_key(event),
         FloatingWindow::KindSelector { .. } => route_kind_selector_key(event),
         FloatingWindow::NewItem { .. } | FloatingWindow::EditItem { .. } => {
-            route_edit_form_key(event)
+            route_edit_form_key(event, window)
         }
         FloatingWindow::TagFilter => route_tag_filter_key(event),
         FloatingWindow::ConfirmDeleteVault { index, .. } => route_confirm_delete_vault_key(event, *index),
@@ -425,7 +425,14 @@ fn route_help_key(event: KeyEvent) -> Message {
 }
 
 /// Route keys in edit form
-fn route_edit_form_key(event: KeyEvent) -> Message {
+fn route_edit_form_key(event: KeyEvent, window: &FloatingWindow) -> Message {
+    let is_multiline = match window {
+        FloatingWindow::NewItem { form } | FloatingWindow::EditItem { form, .. } => {
+            form.is_multiline_field()
+        }
+        _ => false,
+    };
+
     match event.code {
         KeyCode::Char(c) if !event.modifiers.contains(KeyModifiers::CONTROL) => {
             Message::InputChar(c)
@@ -437,15 +444,29 @@ fn route_edit_form_key(event: KeyEvent) -> Message {
         KeyCode::Home => Message::InputHome,
         KeyCode::End => Message::InputEnd,
         KeyCode::Enter => {
-            if event.modifiers.contains(KeyModifiers::SHIFT) {
+            if event.modifiers.contains(KeyModifiers::SHIFT) || event.modifiers.contains(KeyModifiers::ALT) {
                 Message::InputChar('\n')
             } else {
                 Message::FormSubmit
             }
         }
         KeyCode::Esc => Message::InputCancel,
-        KeyCode::Tab | KeyCode::Down => Message::FormNextField,
-        KeyCode::BackTab | KeyCode::Up => Message::FormPrevField,
+        KeyCode::Tab => Message::FormNextField,
+        KeyCode::BackTab => Message::FormPrevField,
+        KeyCode::Down => {
+            if is_multiline {
+                Message::InputDown
+            } else {
+                Message::FormNextField
+            }
+        }
+        KeyCode::Up => {
+            if is_multiline {
+                Message::InputUp
+            } else {
+                Message::FormPrevField
+            }
+        }
         _ => Message::Noop,
     }
 }

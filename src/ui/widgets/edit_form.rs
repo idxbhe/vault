@@ -82,6 +82,10 @@ pub struct EditFormState {
     pub focused_field: usize,
     /// Cursor position in focused field
     pub cursor: usize,
+    /// Vertical scroll offset for each field (in lines)
+    pub scroll_offsets: Vec<usize>,
+    /// Horizontal target column for up/down movement
+    pub target_col: Option<usize>,
     /// Whether this is a new item (vs editing existing)
     pub is_new: bool,
     /// If Some, restricts the form to editing only this specific field
@@ -93,6 +97,7 @@ impl EditFormState {
     pub fn new(kind: ItemKind, is_new: bool) -> Self {
         let fields = get_fields_for_kind(kind);
         let values = vec![String::new(); fields.len()];
+        let scroll_offsets = vec![0; fields.len()];
 
         Self {
             kind,
@@ -100,6 +105,8 @@ impl EditFormState {
             values,
             focused_field: 0,
             cursor: 0,
+            scroll_offsets,
+            target_col: None,
             is_new,
             target_field: None,
         }
@@ -135,6 +142,7 @@ impl EditFormState {
         if self.focused_field < self.fields.len() - 1 {
             self.focused_field += 1;
             self.cursor = self.values[self.focused_field].len();
+            self.target_col = None;
         }
     }
 
@@ -143,6 +151,7 @@ impl EditFormState {
         if self.focused_field > 0 {
             self.focused_field -= 1;
             self.cursor = self.values[self.focused_field].len();
+            self.target_col = None;
         }
     }
 
@@ -152,6 +161,7 @@ impl EditFormState {
         if let Some(value) = self.values.get_mut(self.focused_field) {
             value.insert(cursor, c);
             self.cursor += c.len_utf8();
+            self.target_col = None;
         }
     }
 
@@ -167,6 +177,7 @@ impl EditFormState {
                     .unwrap_or(0);
                 value.remove(prev);
                 self.cursor = prev;
+                self.target_col = None;
             }
         }
     }
@@ -180,6 +191,7 @@ impl EditFormState {
                 .last()
                 .map(|(i, _)| i)
                 .unwrap_or(0);
+            self.target_col = None;
         }
     }
 
@@ -193,6 +205,79 @@ impl EditFormState {
                 .nth(1)
                 .map(|(i, _)| self.cursor + i)
                 .unwrap_or(len);
+            self.target_col = None;
+        }
+    }
+
+    /// Check if current field supports multiline
+    pub fn is_multiline_field(&self) -> bool {
+        if let Some(f) = self.current_field() {
+            matches!(f, FormField::Notes | FormField::SeedPhrase | FormField::Content | FormField::ApiKey)
+        } else {
+            false
+        }
+    }
+
+    /// Move cursor up one line if in multiline text
+    pub fn move_up(&mut self) {
+        let value = self.current_value().to_string();
+        let current_line_start = value[..self.cursor].rfind('\n').map(|i| i + 1).unwrap_or(0);
+        if current_line_start == 0 { return; }
+        
+        let col = if let Some(tc) = self.target_col {
+            tc
+        } else {
+            let c = value[current_line_start..self.cursor].chars().count();
+            self.target_col = Some(c);
+            c
+        };
+
+        let prev_line_start = value[..current_line_start - 1].rfind('\n').map(|i| i + 1).unwrap_or(0);
+        let prev_line_content = &value[prev_line_start..current_line_start - 1];
+        let prev_line_len = prev_line_content.chars().count();
+        
+        let new_col = col.min(prev_line_len);
+        self.cursor = value[prev_line_start..].char_indices().nth(new_col).map(|(i, _)| prev_line_start + i).unwrap_or(current_line_start - 1);
+    }
+
+    /// Move cursor down one line if in multiline text
+    pub fn move_down(&mut self) {
+        let value = self.current_value().to_string();
+        let current_line_start = value[..self.cursor].rfind('\n').map(|i| i + 1).unwrap_or(0);
+        
+        let col = if let Some(tc) = self.target_col {
+            tc
+        } else {
+            let c = value[current_line_start..self.cursor].chars().count();
+            self.target_col = Some(c);
+            c
+        };
+
+        if let Some(next_nl) = value[self.cursor..].find('\n') {
+            let next_line_start = self.cursor + next_nl + 1;
+            let next_line_end = value[next_line_start..].find('\n').map(|i| next_line_start + i).unwrap_or(value.len());
+            let next_line_char_count = value[next_line_start..next_line_end].chars().count();
+            
+            let new_col = col.min(next_line_char_count);
+            self.cursor = value[next_line_start..].char_indices().nth(new_col).map(|(i, _)| next_line_start + i).unwrap_or(next_line_end);
+        }
+    }
+
+    /// Ensure cursor is visible within the given height
+    pub fn ensure_cursor_visible(&mut self, height: usize) {
+        if height <= 2 { return; } // Too small for borders
+        let inner_height = height.saturating_sub(2);
+        let value = self.values[self.focused_field].clone();
+        
+        // Find which line the cursor is on
+        let cursor_line = value[..self.cursor].chars().filter(|&c| c == '\n').count();
+        
+        let scroll = &mut self.scroll_offsets[self.focused_field];
+        
+        if cursor_line < *scroll {
+            *scroll = cursor_line;
+        } else if cursor_line >= *scroll + inner_height {
+            *scroll = cursor_line - inner_height + 1;
         }
     }
 
@@ -396,15 +481,43 @@ pub fn render(
         let is_focused = i == form_state.focused_field;
         let value = &form_state.values[i];
 
-        render_field(
-            frame,
-            chunks[chunk_idx],
-            field,
-            value,
-            is_focused,
-            if is_focused { form_state.cursor } else { 0 },
-            theme,
-        );
+        // Manage scrolling for focused field
+        if is_focused {
+            // Note: we use the same height logic as Layout constraints for consistency
+            let actual_height = if *field == FormField::Content && matches!(form_state.kind, ItemKind::SecureNote) {
+                15
+            } else if *field == FormField::Notes || *field == FormField::SeedPhrase || *field == FormField::Content || *field == FormField::ApiKey {
+                if is_single_field { 10 } else { 6 }
+            } else {
+                3
+            };
+
+            let mut fs = form_state.clone();
+            fs.ensure_cursor_visible(actual_height);
+            let scroll = fs.scroll_offsets[i];
+            
+            render_field(
+                frame,
+                chunks[chunk_idx],
+                field,
+                value,
+                is_focused,
+                if is_focused { form_state.cursor } else { 0 },
+                scroll as u16,
+                theme,
+            );
+        } else {
+            render_field(
+                frame,
+                chunks[chunk_idx],
+                field,
+                value,
+                is_focused,
+                0,
+                0,
+                theme,
+            );
+        }
 
         // Register this field as clickable
         field_regions.push((
@@ -442,6 +555,7 @@ fn render_field(
     value: &str,
     focused: bool,
     cursor: usize,
+    scroll: u16,
     theme: &ThemePalette,
 ) {
     let border_color = if focused {
@@ -482,7 +596,8 @@ fn render_field(
                     }),
                 )),
         )
-        .wrap(Wrap { trim: false });
+        .wrap(Wrap { trim: false })
+        .scroll((scroll, 0));
 
     frame.render_widget(paragraph, area);
 }

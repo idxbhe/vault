@@ -141,6 +141,10 @@ pub enum Message {
     InputLeft,
     /// Move cursor right
     InputRight,
+    /// Move cursor up
+    InputUp,
+    /// Move cursor down
+    InputDown,
     /// Move cursor to start
     InputHome,
     /// Move cursor to end

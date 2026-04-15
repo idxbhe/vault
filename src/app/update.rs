@@ -939,6 +939,28 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
             Effect::none()
         }
 
+        Message::InputUp => {
+            match &mut state.ui_state.floating_window {
+                Some(FloatingWindow::NewItem { form })
+                | Some(FloatingWindow::EditItem { form, .. }) => {
+                    form.move_up();
+                }
+                _ => {}
+            }
+            Effect::none()
+        }
+
+        Message::InputDown => {
+            match &mut state.ui_state.floating_window {
+                Some(FloatingWindow::NewItem { form })
+                | Some(FloatingWindow::EditItem { form, .. }) => {
+                    form.move_down();
+                }
+                _ => {}
+            }
+            Effect::none()
+        }
+
         Message::InputHome => {
             if state.screen == Screen::Login && state.login_screen.creating_vault {
                 // Not supported
