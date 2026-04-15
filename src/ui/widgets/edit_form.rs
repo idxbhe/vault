@@ -4,9 +4,9 @@
 
 use ratatui::{
     Frame,
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
-    text::Span,
+    text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
 };
 
@@ -533,7 +533,8 @@ pub fn render(
 
     // Render action buttons at bottom (now includes keyboard hints in labels)
     let button_area = chunks[visible_fields.len()];
-    let button_regions = render_form_buttons(frame, button_area, theme);
+    let is_multiline_focused = form_state.is_multiline_field();
+    let button_regions = render_form_buttons(frame, button_area, theme, is_multiline_focused);
 
     FormClickRegions {
         field_regions,
@@ -580,22 +581,35 @@ fn render_field(
         display_value
     };
 
+
+    let mut block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_style(Style::default().fg(border_color))
+        .title(Span::styled(
+            format!(" {} ", field.label()),
+            Style::default().fg(if focused {
+                theme.accent
+            } else {
+                theme.fg_muted
+            }),
+        ));
+
+    // Add multiline hint to the bottom-right of the field block if it's focused and multiline
+    if focused && matches!(field, FormField::Notes | FormField::SeedPhrase | FormField::Content | FormField::ApiKey) {
+        block = block.title_bottom(
+            Line::from(vec![
+                Span::styled(
+                    " Alt+Enter: Newline ",
+                    Style::default().fg(theme.fg_muted).add_modifier(Modifier::ITALIC),
+                )
+            ]).alignment(Alignment::Right)
+        );
+    }
+
     let paragraph = Paragraph::new(text)
         .style(Style::default().fg(theme.fg))
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_type(ratatui::widgets::BorderType::Rounded)
-                .border_style(Style::default().fg(border_color))
-                .title(Span::styled(
-                    format!(" {} ", field.label()),
-                    Style::default().fg(if focused {
-                        theme.accent
-                    } else {
-                        theme.fg_muted
-                    }),
-                )),
-        )
+        .block(block)
         .wrap(Wrap { trim: false })
         .scroll((scroll, 0));
 
@@ -607,6 +621,7 @@ fn render_form_buttons(
     frame: &mut Frame,
     area: Rect,
     theme: &ThemePalette,
+    _is_multiline: bool,
 ) -> Vec<crate::ui::widgets::ButtonRegion> {
     use crate::ui::widgets::{ButtonStyle, render_button_row};
 
