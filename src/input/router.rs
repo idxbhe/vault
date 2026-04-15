@@ -493,9 +493,33 @@ fn route_tag_filter_key(event: KeyEvent) -> Message {
     }
 }
 
-/// Route keys in settings screen  
+/// Route keys in settings screen
 fn route_settings_key(state: &AppState, event: KeyEvent) -> Message {
-    if state.settings_state.security_action.is_some() {
+    if let Some(security_action) = &state.settings_state.security_action {
+        // Special handling for ManageRecovery QuestionList step:
+        // navigation moves question selection, action chars dispatch operations
+        let is_question_list = matches!(
+            security_action,
+            crate::ui::screens::SecurityActionState::ManageRecovery(action)
+                if action.step == crate::ui::screens::ManageRecoveryStep::QuestionList
+        );
+
+        if is_question_list {
+            return match event.code {
+                // Navigation inside the question list
+                KeyCode::Down | KeyCode::Char('j') => Message::SelectNextItem,
+                KeyCode::Up | KeyCode::Char('k') => Message::SelectPrevItem,
+                // Action chars – decoded in update.rs
+                KeyCode::Char(c) if !event.modifiers.contains(KeyModifiers::CONTROL) => {
+                    Message::InputChar(c)
+                }
+                KeyCode::Enter => Message::InputSubmit,
+                KeyCode::Esc => Message::CancelInput,
+                _ => Message::Noop,
+            };
+        }
+
+        // All other security action steps: plain text input
         return match event.code {
             KeyCode::Char(c) if !event.modifiers.contains(KeyModifiers::CONTROL) => {
                 Message::InputChar(c)

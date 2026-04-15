@@ -15,6 +15,10 @@ use crate::storage::ThemeChoice;
 use crate::ui::theme::ThemePalette;
 use crate::utils::icons;
 
+// ─────────────────────────────────────────────────────────
+// Change-Password workflow
+// ─────────────────────────────────────────────────────────
+
 /// Step state for change-password workflow.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChangePasswordStep {
@@ -45,6 +49,45 @@ impl Default for ChangePasswordAction {
         }
     }
 }
+
+// ─────────────────────────────────────────────────────────
+// Add-Keyfile workflow
+// ─────────────────────────────────────────────────────────
+
+/// Step state for add-keyfile workflow.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AddKeyfileStep {
+    /// Verify current master password (+ old keyfile if vault already has one)
+    CurrentPassword,
+    /// Enter old keyfile path (only if vault already has a keyfile)
+    OldKeyfilePath,
+    /// Enter the new keyfile path
+    NewKeyfilePath,
+}
+
+/// Add-keyfile workflow state.
+#[derive(Debug, Clone)]
+pub struct AddKeyfileAction {
+    pub step: AddKeyfileStep,
+    pub current_password: Option<String>,
+    pub old_keyfile_path: String,
+    pub old_keyfile_data: Option<Vec<u8>>,
+}
+
+impl Default for AddKeyfileAction {
+    fn default() -> Self {
+        Self {
+            step: AddKeyfileStep::CurrentPassword,
+            current_password: None,
+            old_keyfile_path: String::new(),
+            old_keyfile_data: None,
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────
+// Configure-Recovery (full reconfigure) workflow
+// ─────────────────────────────────────────────────────────
 
 /// Step state for recovery setup workflow.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,12 +132,101 @@ impl Default for RecoverySetupAction {
     }
 }
 
+// ─────────────────────────────────────────────────────────
+// Manage-Recovery (granular edit) workflow
+// ─────────────────────────────────────────────────────────
+
+/// What the user wants to do with a recovery question.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ManageRecoveryTarget {
+    None,
+    /// Edit question text only (no crypto rebuild)
+    EditQuestionText(usize),
+    /// Edit answer for question at index → crypto rebuild required
+    EditAnswer(usize),
+    /// Delete question at index → crypto rebuild required
+    DeleteQuestion(usize),
+    /// Add a new question
+    AddQuestion,
+}
+
+/// Steps inside the ManageRecovery workflow.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ManageRecoveryStep {
+    /// Verify current master password
+    VerifyPassword,
+    /// Verify existing keyfile (only if vault has one)
+    VerifyKeyfile,
+    /// Show list of current questions; user chooses action
+    QuestionList,
+    /// Enter new text for the selected question (edit text)
+    EditQuestionText,
+    /// Enter new question text when adding
+    AddQuestionText,
+    /// Enter new answer text when adding
+    AddAnswerText,
+    /// Collect existing answer for question at `collect_idx`
+    /// (for EditAnswer / DeleteQuestion / AddQuestion operations)
+    CollectExistingAnswer,
+    /// Confirm deleting all recovery (when only 1 question remains)
+    ConfirmDisableRecovery,
+}
+
+/// State for the ManageRecovery workflow.
+#[derive(Debug, Clone)]
+pub struct ManageRecoveryAction {
+    pub step: ManageRecoveryStep,
+    pub current_password: Option<String>,
+    pub keyfile_path: String,
+    pub keyfile_data: Option<Vec<u8>>,
+    /// Which question is highlighted in the list view
+    pub selected_idx: usize,
+    /// The operation the user has chosen
+    pub target: ManageRecoveryTarget,
+    /// New question text (for EditQuestionText or AddQuestion)
+    pub new_question_text: Option<String>,
+    /// New answer text (for AddQuestion)
+    pub new_answer_text: Option<String>,
+    /// Answers collected so far for crypto rebuild
+    /// Index N = plaintext answer for questions[N]
+    pub collected_answers: Vec<Option<String>>,
+    /// Which answer index we are currently collecting
+    pub collect_idx: usize,
+}
+
+impl Default for ManageRecoveryAction {
+    fn default() -> Self {
+        Self {
+            step: ManageRecoveryStep::VerifyPassword,
+            current_password: None,
+            keyfile_path: String::new(),
+            keyfile_data: None,
+            selected_idx: 0,
+            target: ManageRecoveryTarget::None,
+            new_question_text: None,
+            new_answer_text: None,
+            collected_answers: Vec::new(),
+            collect_idx: 0,
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────
+// Top-level security action state
+// ─────────────────────────────────────────────────────────
+
 /// Active security action workflow from settings.
 #[derive(Debug, Clone)]
 pub enum SecurityActionState {
     ChangePassword(ChangePasswordAction),
     ConfigureRecovery(RecoverySetupAction),
+    AddKeyfile(AddKeyfileAction),
+    ManageRecovery(ManageRecoveryAction),
 }
+
+// ─────────────────────────────────────────────────────────
+// Settings screen state
+// ─────────────────────────────────────────────────────────
 
 /// Settings screen state
 #[derive(Debug, Default)]
@@ -152,6 +284,10 @@ impl SettingsScreen {
     }
 }
 
+// ─────────────────────────────────────────────────────────
+// Setting item types
+// ─────────────────────────────────────────────────────────
+
 /// Setting item types
 #[derive(Debug, Clone)]
 pub enum SettingKind {
@@ -162,6 +298,8 @@ pub enum SettingKind {
     ShowIcons,
     MouseEnabled,
     ChangeMasterPassword,
+    AddKeyfile,
+    ManageRecovery,
     ConfigureRecovery,
 }
 
@@ -175,6 +313,8 @@ impl SettingKind {
             SettingKind::ShowIcons,
             SettingKind::MouseEnabled,
             SettingKind::ChangeMasterPassword,
+            SettingKind::AddKeyfile,
+            SettingKind::ManageRecovery,
             SettingKind::ConfigureRecovery,
         ]
     }
@@ -188,7 +328,9 @@ impl SettingKind {
             SettingKind::ShowIcons => "Show Icons",
             SettingKind::MouseEnabled => "Mouse Support",
             SettingKind::ChangeMasterPassword => "Change Master Password",
-            SettingKind::ConfigureRecovery => "Configure Recovery",
+            SettingKind::AddKeyfile => "Add / Replace Keyfile",
+            SettingKind::ManageRecovery => "Manage Recovery Q&A",
+            SettingKind::ConfigureRecovery => "Reconfigure All Recovery",
         }
     }
 
@@ -201,10 +343,16 @@ impl SettingKind {
             SettingKind::ShowIcons => "",
             SettingKind::MouseEnabled => "󰍽",
             SettingKind::ChangeMasterPassword => "󰌾",
+            SettingKind::AddKeyfile => "󰏖",
+            SettingKind::ManageRecovery => "󱠇",
             SettingKind::ConfigureRecovery => "󱞁",
         }
     }
 }
+
+// ─────────────────────────────────────────────────────────
+// Render entry point
+// ─────────────────────────────────────────────────────────
 
 /// Render the settings screen
 pub fn render(
@@ -297,7 +445,7 @@ fn render_settings_list(
 
             let line = Line::from(vec![
                 Span::styled(format!(" {} ", setting.icon()), style.fg(theme.accent)),
-                Span::styled(format!("{:20}", setting.label()), style),
+                Span::styled(format!("{:25}", setting.label()), style),
                 Span::styled(value, style.fg(theme.fg_muted)),
             ]);
 
@@ -326,7 +474,19 @@ fn render_footer(
     screen_state: &SettingsScreen,
     theme: &ThemePalette,
 ) {
-    let hints = if screen_state.security_action.is_some() {
+    let hints = if let Some(SecurityActionState::ManageRecovery(action)) =
+        &screen_state.security_action
+    {
+        match action.step {
+            ManageRecoveryStep::QuestionList => {
+                "[e] Edit text  [a] Edit answer  [d] Delete  [n] Add  [Esc] Cancel"
+            }
+            ManageRecoveryStep::ConfirmDisableRecovery => {
+                "Enter: Confirm disable  Esc: Cancel"
+            }
+            _ => "Type input  Enter: Next/Save  Esc: Cancel",
+        }
+    } else if screen_state.security_action.is_some() {
         "Type input  Enter: Next/Save  Esc: Cancel"
     } else if screen_state.editing {
         "j/k: Select  Enter: Confirm  Esc: Cancel"
@@ -432,8 +592,35 @@ fn get_setting_value(state: &AppState, setting: &SettingKind) -> String {
                 "Disabled".to_string()
             }
         }
-        SettingKind::ChangeMasterPassword => "Action".to_string(),
-        SettingKind::ConfigureRecovery => "Action".to_string(),
+        SettingKind::ChangeMasterPassword => "Action →".to_string(),
+        SettingKind::AddKeyfile => {
+            if let Some(vs) = &state.vault_state {
+                if vs.has_keyfile {
+                    "Replace keyfile →".to_string()
+                } else {
+                    "Add keyfile →".to_string()
+                }
+            } else {
+                "Action →".to_string()
+            }
+        }
+        SettingKind::ManageRecovery => {
+            if let Some(vs) = &state.vault_state {
+                let count = vs
+                    .recovery_metadata
+                    .as_ref()
+                    .map(|m| m.questions.len())
+                    .unwrap_or(0);
+                if count == 0 {
+                    "Not configured →".to_string()
+                } else {
+                    format!("{} question(s) →", count)
+                }
+            } else {
+                "Action →".to_string()
+            }
+        }
+        SettingKind::ConfigureRecovery => "Reconfigure all →".to_string(),
     }
 }
 
@@ -460,7 +647,10 @@ fn get_setting_options(_state: &AppState, setting: &SettingKind) -> Vec<String> 
             "120s".to_string(),
             "Never".to_string(),
         ],
-        SettingKind::ChangeMasterPassword | SettingKind::ConfigureRecovery => vec![],
+        SettingKind::ChangeMasterPassword
+        | SettingKind::AddKeyfile
+        | SettingKind::ManageRecovery
+        | SettingKind::ConfigureRecovery => vec![],
     }
 }
 
@@ -477,25 +667,13 @@ pub fn get_current_sub_index(state: &AppState, setting_index: usize) -> usize {
             .position(|t| *t == state.config.theme)
             .unwrap_or(0),
         SettingKind::AutoLock => {
-            if state.config.auto_lock_enabled {
-                0
-            } else {
-                1
-            }
+            if state.config.auto_lock_enabled { 0 } else { 1 }
         }
         SettingKind::ShowIcons => {
-            if state.config.show_icons {
-                0
-            } else {
-                1
-            }
+            if state.config.show_icons { 0 } else { 1 }
         }
         SettingKind::MouseEnabled => {
-            if state.config.mouse_enabled {
-                0
-            } else {
-                1
-            }
+            if state.config.mouse_enabled { 0 } else { 1 }
         }
         SettingKind::AutoLockTimeout => match state.config.auto_lock_timeout_secs {
             60 => 0,
@@ -511,7 +689,10 @@ pub fn get_current_sub_index(state: &AppState, setting_index: usize) -> usize {
             120 => 3,
             _ => 4,
         },
-        SettingKind::ChangeMasterPassword | SettingKind::ConfigureRecovery => 0,
+        SettingKind::ChangeMasterPassword
+        | SettingKind::AddKeyfile
+        | SettingKind::ManageRecovery
+        | SettingKind::ConfigureRecovery => 0,
     }
 }
 
@@ -555,9 +736,16 @@ pub fn apply_setting(state: &mut AppState, setting_index: usize, option_index: u
                 _ => 0, // Never
             };
         }
-        SettingKind::ChangeMasterPassword | SettingKind::ConfigureRecovery => {}
+        SettingKind::ChangeMasterPassword
+        | SettingKind::AddKeyfile
+        | SettingKind::ManageRecovery
+        | SettingKind::ConfigureRecovery => {}
     }
 }
+
+// ─────────────────────────────────────────────────────────
+// Security action popup rendering
+// ─────────────────────────────────────────────────────────
 
 fn render_security_action_popup(
     frame: &mut Frame,
@@ -570,6 +758,29 @@ fn render_security_action_popup(
         return;
     };
 
+    match action {
+        SecurityActionState::ManageRecovery(manage) => {
+            if manage.step == ManageRecoveryStep::QuestionList {
+                render_manage_recovery_list_popup(frame, area, state, manage, theme);
+            } else {
+                render_manage_recovery_input_popup(frame, area, state, manage, theme);
+            }
+        }
+        _ => render_generic_input_popup(frame, area, state, action, theme),
+    }
+}
+
+// ─────────────────────────────────────────────────────────
+// Generic input popup (ChangePassword, AddKeyfile, ConfigureRecovery)
+// ─────────────────────────────────────────────────────────
+
+fn render_generic_input_popup(
+    frame: &mut Frame,
+    area: Rect,
+    state: &AppState,
+    action: &SecurityActionState,
+    theme: &ThemePalette,
+) {
     let (title, prompt, detail, force_mask) = match action {
         SecurityActionState::ChangePassword(change) => match change.step {
             ChangePasswordStep::CurrentPassword => (
@@ -597,6 +808,26 @@ fn render_security_action_popup(
                 true,
             ),
         },
+        SecurityActionState::AddKeyfile(kf) => match kf.step {
+            AddKeyfileStep::CurrentPassword => (
+                " Add / Replace Keyfile ",
+                "Enter current master password",
+                "Step 1/3",
+                true,
+            ),
+            AddKeyfileStep::OldKeyfilePath => (
+                " Add / Replace Keyfile ",
+                "Enter existing keyfile path (for verification)",
+                "Step 2/3 – vault already has a keyfile",
+                false,
+            ),
+            AddKeyfileStep::NewKeyfilePath => (
+                " Add / Replace Keyfile ",
+                "Enter new keyfile path",
+                "Step 3/3 – leave blank to remove keyfile",
+                false,
+            ),
+        },
         SecurityActionState::ConfigureRecovery(recovery) => match recovery.step {
             RecoverySetupStep::CurrentPassword => (
                 " Configure Recovery ",
@@ -613,7 +844,7 @@ fn render_security_action_popup(
             RecoverySetupStep::QuestionCount => (
                 " Configure Recovery ",
                 "Number of questions (0-3)",
-                "Step 3/5",
+                "Step 3/5 – 0 disables recovery",
                 false,
             ),
             RecoverySetupStep::QuestionText => (
@@ -629,8 +860,23 @@ fn render_security_action_popup(
                 true,
             ),
         },
+        // ManageRecovery handled separately
+        SecurityActionState::ManageRecovery(_) => return,
     };
 
+    render_input_popup_inner(frame, area, state, title, prompt, detail, force_mask, theme);
+}
+
+fn render_input_popup_inner(
+    frame: &mut Frame,
+    area: Rect,
+    state: &AppState,
+    title: &str,
+    prompt: &str,
+    detail: &str,
+    force_mask: bool,
+    theme: &ThemePalette,
+) {
     let popup_width = area.width.min(76).saturating_sub(2);
     let popup_height = 10;
     let popup_x = area.x + (area.width.saturating_sub(popup_width)) / 2;
@@ -700,6 +946,224 @@ fn render_security_action_popup(
     frame.set_cursor_position((cursor_x, cursor_y));
 }
 
+// ─────────────────────────────────────────────────────────
+// ManageRecovery – list popup (QuestionList step)
+// ─────────────────────────────────────────────────────────
+
+fn render_manage_recovery_list_popup(
+    frame: &mut Frame,
+    area: Rect,
+    state: &AppState,
+    manage: &ManageRecoveryAction,
+    theme: &ThemePalette,
+) {
+    // Gather question texts from vault state
+    let questions: Vec<String> = state
+        .vault_state
+        .as_ref()
+        .and_then(|vs| vs.recovery_metadata.as_ref())
+        .map(|m| m.questions.iter().map(|q| q.question.clone()).collect())
+        .unwrap_or_default();
+
+    let popup_width = area.width.min(76).saturating_sub(2);
+    let list_height = (questions.len() as u16 + 2).max(4);
+    let popup_height = list_height + 5; // block + header + footer hints
+    let popup_x = area.x + (area.width.saturating_sub(popup_width)) / 2;
+    let popup_y = area.y + (area.height.saturating_sub(popup_height)) / 2;
+    let popup_area = Rect::new(popup_x, popup_y, popup_width, popup_height);
+
+    frame.render_widget(Clear, popup_area);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(theme.accent))
+        .title(" Manage Recovery Questions ")
+        .title_style(
+            Style::default()
+                .fg(theme.accent)
+                .add_modifier(Modifier::BOLD),
+        )
+        .style(Style::default().bg(theme.bg));
+    let inner = block.inner(popup_area);
+    frame.render_widget(block, popup_area);
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Min(3),    // question list
+            Constraint::Length(1), // error / info line
+            Constraint::Length(2), // hint
+        ])
+        .split(inner);
+
+    if questions.is_empty() {
+        let no_questions = Paragraph::new("  No recovery questions configured.")
+            .style(Style::default().fg(theme.fg_muted));
+        frame.render_widget(no_questions, chunks[0]);
+    } else {
+        let items: Vec<ListItem> = questions
+            .iter()
+            .enumerate()
+            .map(|(i, q)| {
+                let selected = i == manage.selected_idx;
+                let style = if selected {
+                    Style::default()
+                        .fg(theme.selection_fg)
+                        .bg(theme.selection_bg)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(theme.fg)
+                };
+                let prefix = if selected { " › " } else { "   " };
+                let label = format!("{}{}. {}", prefix, i + 1, q);
+                ListItem::new(Span::styled(label, style))
+            })
+            .collect();
+
+        let list = List::new(items);
+        let mut list_state = ListState::default();
+        list_state.select(Some(manage.selected_idx));
+        frame.render_stateful_widget(list, chunks[0], &mut list_state);
+    }
+
+    // Error / status line
+    let status = state
+        .login_screen
+        .error_message
+        .as_deref()
+        .unwrap_or("");
+    let status_style = if status.contains("Error") || status.contains("cannot") {
+        Style::default().fg(theme.error)
+    } else {
+        Style::default().fg(theme.fg_muted)
+    };
+    let error_para = Paragraph::new(status)
+        .style(status_style)
+        .alignment(Alignment::Center);
+    frame.render_widget(error_para, chunks[1]);
+
+    // Key hints
+    let can_add = questions.len() < 3;
+    let can_act = !questions.is_empty();
+    let mut hint_parts = vec![];
+    if can_act {
+        hint_parts.push("[e] Edit text  [a] Edit answer  [d] Delete");
+    }
+    if can_add {
+        hint_parts.push("[n] Add");
+    }
+    hint_parts.push("[Esc] Cancel");
+
+    let hint_para = Paragraph::new(hint_parts.join("  "))
+        .style(Style::default().fg(theme.fg_muted))
+        .alignment(Alignment::Center);
+    frame.render_widget(hint_para, chunks[2]);
+}
+
+// ─────────────────────────────────────────────────────────
+// ManageRecovery – input popup (all other steps)
+// ─────────────────────────────────────────────────────────
+
+fn render_manage_recovery_input_popup(
+    frame: &mut Frame,
+    area: Rect,
+    state: &AppState,
+    manage: &ManageRecoveryAction,
+    theme: &ThemePalette,
+) {
+    // Fetch question count for contextual detail
+    let question_count = state
+        .vault_state
+        .as_ref()
+        .and_then(|vs| vs.recovery_metadata.as_ref())
+        .map(|m| m.questions.len())
+        .unwrap_or(0);
+
+    let (title, prompt, detail, force_mask) = match &manage.step {
+        ManageRecoveryStep::VerifyPassword => (
+            " Manage Recovery Q&A ",
+            "Enter current master password",
+            "Verification required before editing".to_string(),
+            true,
+        ),
+        ManageRecoveryStep::VerifyKeyfile => (
+            " Manage Recovery Q&A ",
+            "Enter keyfile path for verification",
+            "Vault uses a keyfile – required".to_string(),
+            false,
+        ),
+        ManageRecoveryStep::EditQuestionText => {
+            let q_idx = match &manage.target {
+                ManageRecoveryTarget::EditQuestionText(i) => *i,
+                _ => 0,
+            };
+            (
+                " Edit Question Text ",
+                "Enter new question text",
+                format!("Editing question {} of {}", q_idx + 1, question_count),
+                false,
+            )
+        }
+        ManageRecoveryStep::AddQuestionText => (
+            " Add Recovery Question ",
+            "Enter new security question",
+            format!("Adding question {} of 3 (max)", question_count + 1),
+            false,
+        ),
+        ManageRecoveryStep::AddAnswerText => (
+            " Add Recovery Question ",
+            "Enter the answer for the new question",
+            "Answer is case-sensitive and hashed".to_string(),
+            true,
+        ),
+        ManageRecoveryStep::CollectExistingAnswer => {
+            let questions: Vec<String> = state
+                .vault_state
+                .as_ref()
+                .and_then(|vs| vs.recovery_metadata.as_ref())
+                .map(|m| m.questions.iter().map(|q| q.question.clone()).collect())
+                .unwrap_or_default();
+            let idx = manage.collect_idx;
+            let q_text = questions.get(idx).cloned().unwrap_or_default();
+            let total_to_collect = manage.collected_answers.len() + 1;
+            (
+                " Re-enter Answers ",
+                "Enter your answer to the question below",
+                format!(
+                    "[{}/{}] {}",
+                    idx + 1,
+                    total_to_collect,
+                    truncate(&q_text, 50)
+                ),
+                true,
+            )
+        }
+        ManageRecoveryStep::ConfirmDisableRecovery => (
+            " Disable Recovery? ",
+            "Type YES to confirm",
+            "This will remove ALL recovery questions!".to_string(),
+            false,
+        ),
+        // QuestionList is rendered elsewhere
+        ManageRecoveryStep::QuestionList => return,
+    };
+
+    render_input_popup_inner(frame, area, state, title, prompt, &detail, force_mask, theme);
+}
+
+fn truncate(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        s.to_string()
+    } else {
+        format!("{}…", s.chars().take(max - 1).collect::<String>())
+    }
+}
+
+// ─────────────────────────────────────────────────────────
+// Tests
+// ─────────────────────────────────────────────────────────
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -737,5 +1201,15 @@ mod tests {
     fn test_setting_kind_labels() {
         assert_eq!(SettingKind::Theme.label(), "Theme");
         assert_eq!(SettingKind::AutoLock.label(), "Auto-Lock");
+        assert_eq!(SettingKind::AddKeyfile.label(), "Add / Replace Keyfile");
+        assert_eq!(SettingKind::ManageRecovery.label(), "Manage Recovery Q&A");
+    }
+
+    #[test]
+    fn test_manage_recovery_action_default() {
+        let action = ManageRecoveryAction::default();
+        assert_eq!(action.step, ManageRecoveryStep::VerifyPassword);
+        assert_eq!(action.selected_idx, 0);
+        assert!(action.collected_answers.is_empty());
     }
 }

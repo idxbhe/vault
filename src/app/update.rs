@@ -9,8 +9,10 @@ use uuid::Uuid;
 
 use crate::domain::{Item, ItemKind};
 use crate::ui::screens::{
-    ChangePasswordAction, ChangePasswordStep, RecoveryQuestionDraft, RecoverySetupAction,
-    RecoverySetupStep, SecurityActionState, SettingKind, apply_setting, get_current_sub_index,
+    AddKeyfileAction, AddKeyfileStep, ChangePasswordAction, ChangePasswordStep,
+    ManageRecoveryAction, ManageRecoveryStep, ManageRecoveryTarget, RecoveryQuestionDraft,
+    RecoverySetupAction, RecoverySetupStep, SecurityActionState, SettingKind, apply_setting,
+    get_current_sub_index,
 };
 
 use super::effect::Effect;
@@ -363,6 +365,29 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
 
         Message::SelectNextItem => {
             if state.screen == Screen::Settings {
+                // If ManageRecovery QuestionList is active, navigate in question list
+                let is_question_list = matches!(
+                    &state.settings_state.security_action,
+                    Some(SecurityActionState::ManageRecovery(a))
+                        if a.step == ManageRecoveryStep::QuestionList
+                );
+                if is_question_list {
+                    let q_count = state
+                        .vault_state
+                        .as_ref()
+                        .and_then(|vs| vs.recovery_metadata.as_ref())
+                        .map(|m| m.questions.len())
+                        .unwrap_or(0);
+                    if let Some(SecurityActionState::ManageRecovery(ref mut a)) =
+                        state.settings_state.security_action
+                    {
+                        if q_count > 0 && a.selected_idx < q_count - 1 {
+                            a.selected_idx += 1;
+                        }
+                    }
+                    return Effect::none();
+                }
+
                 let max_items = crate::ui::screens::SettingKind::all().len();
                 let max_sub_items = settings_option_count(state, state.settings_state.selected);
                 state.settings_state.move_down(max_items, max_sub_items);
@@ -374,12 +399,28 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
 
         Message::SelectPrevItem => {
             if state.screen == Screen::Settings {
+                // If ManageRecovery QuestionList is active, navigate in question list
+                let is_question_list = matches!(
+                    &state.settings_state.security_action,
+                    Some(SecurityActionState::ManageRecovery(a))
+                        if a.step == ManageRecoveryStep::QuestionList
+                );
+                if is_question_list {
+                    if let Some(SecurityActionState::ManageRecovery(ref mut a)) =
+                        state.settings_state.security_action
+                    {
+                        a.selected_idx = a.selected_idx.saturating_sub(1);
+                    }
+                    return Effect::none();
+                }
+
                 state.settings_state.move_up();
                 return Effect::none();
             }
             select_adjacent_item(state, -1);
             Effect::none()
         }
+
 
         Message::CreateItem { kind } => {
             if let Some(ref mut vs) = state.vault_state {
@@ -1092,6 +1133,24 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
                     Some(SettingKind::ChangeMasterPassword) => {
                         state.settings_state.security_action = Some(
                             SecurityActionState::ChangePassword(ChangePasswordAction::default()),
+                        );
+                        state.ui_state.input_buffer.clear();
+                        state.ui_state.input_buffer.masked = true;
+                        state.login_screen.error_message = None;
+                        return Effect::none();
+                    }
+                    Some(SettingKind::AddKeyfile) => {
+                        state.settings_state.security_action = Some(
+                            SecurityActionState::AddKeyfile(AddKeyfileAction::default()),
+                        );
+                        state.ui_state.input_buffer.clear();
+                        state.ui_state.input_buffer.masked = true;
+                        state.login_screen.error_message = None;
+                        return Effect::none();
+                    }
+                    Some(SettingKind::ManageRecovery) => {
+                        state.settings_state.security_action = Some(
+                            SecurityActionState::ManageRecovery(ManageRecoveryAction::default()),
                         );
                         state.ui_state.input_buffer.clear();
                         state.ui_state.input_buffer.masked = true;
@@ -2287,6 +2346,772 @@ fn handle_settings_security_action_submit(state: &mut AppState) -> Effect {
                 }
             }
         },
+        SecurityActionState::AddKeyfile(action) => {
+            handle_add_keyfile_submit(state, action)
+        }
+        SecurityActionState::ManageRecovery(action) => {
+            handle_manage_recovery_submit(state, action)
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────
+// AddKeyfile submit handler
+// ─────────────────────────────────────────────────────────
+
+fn handle_add_keyfile_submit(state: &mut AppState, action: AddKeyfileAction) -> Effect {
+    let input = state.ui_state.input_buffer.text.clone();
+
+    let Some(vault_state) = state.vault_state.as_mut() else {
+        state.login_screen.error_message = Some("No vault is open".to_string());
+        state.settings_state.security_action = None;
+        return Effect::none();
+    };
+
+    match action.step {
+        AddKeyfileStep::CurrentPassword => {
+            if input.trim().is_empty() {
+                state.login_screen.error_message =
+                    Some("Current password cannot be empty".to_string());
+                state.settings_state.security_action =
+                    Some(SecurityActionState::AddKeyfile(action));
+                return Effect::none();
+            }
+            let mut next = action.clone();
+            next.current_password = Some(input);
+
+            // If vault already has a keyfile, we need the old keyfile path first
+            if vault_state.has_keyfile {
+                next.step = AddKeyfileStep::OldKeyfilePath;
+                state.ui_state.input_buffer.clear();
+                state.ui_state.input_buffer.masked = false;
+                state.login_screen.error_message = None;
+            } else {
+                next.step = AddKeyfileStep::NewKeyfilePath;
+                state.ui_state.input_buffer.clear();
+                state.ui_state.input_buffer.masked = false;
+                state.login_screen.error_message = None;
+            }
+            state.settings_state.security_action = Some(SecurityActionState::AddKeyfile(next));
+            Effect::none()
+        }
+
+        AddKeyfileStep::OldKeyfilePath => {
+            if input.trim().is_empty() {
+                state.login_screen.error_message =
+                    Some("Keyfile path cannot be empty".to_string());
+                state.settings_state.security_action =
+                    Some(SecurityActionState::AddKeyfile(action));
+                return Effect::none();
+            }
+            let mut next = action.clone();
+            next.old_keyfile_path = input.trim().to_string();
+
+            // Verify credentials with old password + old keyfile
+            let current_pass = match &next.current_password {
+                Some(p) => p.clone(),
+                None => {
+                    state.login_screen.error_message =
+                        Some("Session expired – please restart".to_string());
+                    state.settings_state.security_action = None;
+                    return Effect::none();
+                }
+            };
+
+            match verify_master_credentials(vault_state, &current_pass, Some(&next.old_keyfile_path)) {
+                Ok(Some(kf_data)) => {
+                    next.old_keyfile_data = Some(kf_data);
+                }
+                Ok(None) => {}
+                Err(msg) => {
+                    state.login_screen.error_message = Some(msg);
+                    state.settings_state.security_action =
+                        Some(SecurityActionState::AddKeyfile(next));
+                    return Effect::none();
+                }
+            }
+
+            next.step = AddKeyfileStep::NewKeyfilePath;
+            state.ui_state.input_buffer.clear();
+            state.ui_state.input_buffer.masked = false;
+            state.login_screen.error_message = None;
+            state.settings_state.security_action = Some(SecurityActionState::AddKeyfile(next));
+            Effect::none()
+        }
+
+        AddKeyfileStep::NewKeyfilePath => {
+            let new_kf_path = input.trim().to_string();
+
+            // Verify old credentials first (if we haven't already for OldKeyfilePath step)
+            let current_pass = match &action.current_password {
+                Some(p) => p.clone(),
+                None => {
+                    state.login_screen.error_message =
+                        Some("Session expired – please restart".to_string());
+                    state.settings_state.security_action = None;
+                    return Effect::none();
+                }
+            };
+
+            // For vaults without an existing keyfile, verify password alone now
+            if !vault_state.has_keyfile {
+                match verify_master_credentials(vault_state, &current_pass, None) {
+                    Ok(_) => {}
+                    Err(msg) => {
+                        state.login_screen.error_message = Some(msg);
+                        state.settings_state.security_action =
+                            Some(SecurityActionState::AddKeyfile(action));
+                        return Effect::none();
+                    }
+                }
+            }
+
+            // If a new keyfile path is provided, load it
+            let new_kf_data: Option<Vec<u8>> = if new_kf_path.is_empty() {
+                None
+            } else {
+                match crate::crypto::KeyFile::load(&new_kf_path) {
+                    Ok(kf) => Some(kf.as_bytes().to_vec()),
+                    Err(e) => {
+                        state.login_screen.error_message =
+                            Some(format!("Failed to read keyfile: {}", e));
+                        state.settings_state.security_action =
+                            Some(SecurityActionState::AddKeyfile(action));
+                        return Effect::none();
+                    }
+                }
+            };
+
+            // Derive new encryption key with password + new keyfile
+            let secure_pass = crate::crypto::SecureString::new(current_pass);
+            let new_key = match crate::crypto::derive_key(
+                &secure_pass,
+                new_kf_data.as_deref(),
+                &vault_state.salt,
+                &crate::crypto::Argon2Params::default(),
+            ) {
+                Ok(k) => k,
+                Err(e) => {
+                    state.login_screen.error_message =
+                        Some(format!("Failed to derive new key: {}", e));
+                    state.settings_state.security_action =
+                        Some(SecurityActionState::AddKeyfile(action));
+                    return Effect::none();
+                }
+            };
+
+            vault_state.encryption_key = new_key;
+            vault_state.has_keyfile = new_kf_data.is_some();
+            vault_state.mark_dirty();
+
+            state.settings_state.security_action = None;
+            state.ui_state.input_buffer.clear();
+            state.ui_state.input_buffer.masked = false;
+            state.login_screen.error_message = None;
+
+            let msg = if vault_state.has_keyfile {
+                "Keyfile added and vault re-encrypted"
+            } else {
+                "Keyfile removed and vault re-encrypted"
+            };
+            state.ui_state.notify(msg, NotificationLevel::Success);
+
+            Effect::WriteVaultFile {
+                path: vault_state.vault_path.clone(),
+                vault: vault_state.vault.clone(),
+                key: vault_state.encryption_key,
+                salt: vault_state.salt,
+                has_keyfile: vault_state.has_keyfile,
+                encryption_method: vault_state.encryption_method,
+                recovery_metadata: vault_state.recovery_metadata.clone(),
+            }
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────
+// ManageRecovery submit handler
+// ─────────────────────────────────────────────────────────
+
+fn handle_manage_recovery_submit(state: &mut AppState, action: ManageRecoveryAction) -> Effect {
+    let input = state.ui_state.input_buffer.text.clone();
+
+    let Some(vault_state) = state.vault_state.as_mut() else {
+        state.login_screen.error_message = Some("No vault is open".to_string());
+        state.settings_state.security_action = None;
+        return Effect::none();
+    };
+
+    match action.step.clone() {
+        // ── Step 1: verify master password ──────────────────────────────────
+        ManageRecoveryStep::VerifyPassword => {
+            if input.trim().is_empty() {
+                state.login_screen.error_message =
+                    Some("Current password cannot be empty".to_string());
+                state.settings_state.security_action =
+                    Some(SecurityActionState::ManageRecovery(action));
+                return Effect::none();
+            }
+            let mut next = action.clone();
+            next.current_password = Some(input);
+
+            if vault_state.has_keyfile {
+                next.step = ManageRecoveryStep::VerifyKeyfile;
+                state.ui_state.input_buffer.clear();
+                state.ui_state.input_buffer.masked = false;
+            } else {
+                // Verify password-only credentials
+                let pass = next.current_password.as_deref().unwrap_or("");
+                match verify_master_credentials(vault_state, pass, None) {
+                    Ok(_) => {}
+                    Err(msg) => {
+                        state.login_screen.error_message = Some(msg);
+                        state.settings_state.security_action =
+                            Some(SecurityActionState::ManageRecovery(next));
+                        return Effect::none();
+                    }
+                }
+                next.step = ManageRecoveryStep::QuestionList;
+                state.ui_state.input_buffer.clear();
+                state.ui_state.input_buffer.masked = false;
+            }
+            state.login_screen.error_message = None;
+            state.settings_state.security_action =
+                Some(SecurityActionState::ManageRecovery(next));
+            Effect::none()
+        }
+
+        // ── Step 2: verify keyfile ───────────────────────────────────────────
+        ManageRecoveryStep::VerifyKeyfile => {
+            if input.trim().is_empty() {
+                state.login_screen.error_message =
+                    Some("Keyfile path cannot be empty".to_string());
+                state.settings_state.security_action =
+                    Some(SecurityActionState::ManageRecovery(action));
+                return Effect::none();
+            }
+            let mut next = action.clone();
+            next.keyfile_path = input.trim().to_string();
+
+            let pass = next.current_password.as_deref().unwrap_or("");
+            match verify_master_credentials(vault_state, pass, Some(&next.keyfile_path)) {
+                Ok(Some(kf_data)) => {
+                    next.keyfile_data = Some(kf_data);
+                }
+                Ok(None) => {}
+                Err(msg) => {
+                    state.login_screen.error_message = Some(msg);
+                    state.settings_state.security_action =
+                        Some(SecurityActionState::ManageRecovery(next));
+                    return Effect::none();
+                }
+            }
+
+            next.step = ManageRecoveryStep::QuestionList;
+            state.ui_state.input_buffer.clear();
+            state.ui_state.input_buffer.masked = false;
+            state.login_screen.error_message = None;
+            state.settings_state.security_action =
+                Some(SecurityActionState::ManageRecovery(next));
+            Effect::none()
+        }
+
+        // ── QuestionList: dispatch based on char key ─────────────────────────
+        ManageRecoveryStep::QuestionList => {
+            // InputSubmit (Enter) defaults to 'e' (edit question text)
+            let char_input = input.chars().next().unwrap_or('\n');
+            let questions: Vec<_> = vault_state
+                .recovery_metadata
+                .as_ref()
+                .map(|m| m.questions.iter().map(|q| q.question.clone()).collect())
+                .unwrap_or_default();
+            let q_count = questions.len();
+            let sel_idx = action.selected_idx;
+
+            match char_input {
+                // [e] / Enter → Edit question text
+                'e' | '\n' => {
+                    if q_count == 0 {
+                        state.login_screen.error_message =
+                            Some("No recovery questions to edit".to_string());
+                        state.settings_state.security_action =
+                            Some(SecurityActionState::ManageRecovery(action));
+                        return Effect::none();
+                    }
+                    let mut next = action.clone();
+                    next.target = ManageRecoveryTarget::EditQuestionText(sel_idx);
+                    next.step = ManageRecoveryStep::EditQuestionText;
+                    // Pre-fill input with existing question text
+                    state.ui_state.input_buffer.text = questions[sel_idx].clone();
+                    state.ui_state.input_buffer.cursor = questions[sel_idx].len();
+                    state.ui_state.input_buffer.masked = false;
+                    state.login_screen.error_message = None;
+                    state.settings_state.security_action =
+                        Some(SecurityActionState::ManageRecovery(next));
+                }
+
+                // [a] → Edit answer (requires collecting all answers + rebuild)
+                'a' => {
+                    if q_count == 0 {
+                        state.login_screen.error_message =
+                            Some("No recovery questions configured".to_string());
+                        state.settings_state.security_action =
+                            Some(SecurityActionState::ManageRecovery(action));
+                        return Effect::none();
+                    }
+                    let mut next = action.clone();
+                    next.target = ManageRecoveryTarget::EditAnswer(sel_idx);
+                    // We need answers for ALL questions (we'll update sel_idx's answer during rebuild)
+                    next.collected_answers = vec![None; q_count];
+                    // Start collecting from the first question
+                    // (We'll skip sel_idx's answer entry if we're providing new one separately,
+                    // but for simplicity we collect ALL answers fresh including the changed one)
+                    next.collect_idx = 0;
+                    next.step = ManageRecoveryStep::CollectExistingAnswer;
+                    state.ui_state.input_buffer.clear();
+                    state.ui_state.input_buffer.masked = true;
+                    state.login_screen.error_message =
+                        Some(format!("Enter answer for: {}", questions[0]));
+                    state.settings_state.security_action =
+                        Some(SecurityActionState::ManageRecovery(next));
+                }
+
+                // [d] → Delete question
+                'd' => {
+                    if q_count == 0 {
+                        state.login_screen.error_message =
+                            Some("No recovery questions to delete".to_string());
+                        state.settings_state.security_action =
+                            Some(SecurityActionState::ManageRecovery(action));
+                        return Effect::none();
+                    }
+                    let mut next = action.clone();
+                    next.target = ManageRecoveryTarget::DeleteQuestion(sel_idx);
+
+                    if q_count == 1 {
+                        // Only 1 question → ask to confirm disabling recovery entirely
+                        next.step = ManageRecoveryStep::ConfirmDisableRecovery;
+                        state.ui_state.input_buffer.clear();
+                        state.ui_state.input_buffer.masked = false;
+                        state.login_screen.error_message =
+                            Some("This will disable recovery. Type YES to confirm.".to_string());
+                    } else {
+                        // Multiple questions → collect remaining answers for rebuild
+                        let remaining_count = q_count - 1;
+                        next.collected_answers = vec![None; remaining_count];
+                        next.collect_idx = 0;
+                        next.step = ManageRecoveryStep::CollectExistingAnswer;
+                        state.ui_state.input_buffer.clear();
+                        state.ui_state.input_buffer.masked = true;
+                        let first_remaining = if sel_idx == 0 { &questions[1] } else { &questions[0] };
+                        state.login_screen.error_message =
+                            Some(format!("Enter answer for: {}", first_remaining));
+                    }
+                    state.settings_state.security_action =
+                        Some(SecurityActionState::ManageRecovery(next));
+                }
+
+                // [n] → Add new question (max 3)
+                'n' => {
+                    if q_count >= 3 {
+                        state.login_screen.error_message =
+                            Some("Maximum recovery questions (3) reached".to_string());
+                        state.settings_state.security_action =
+                            Some(SecurityActionState::ManageRecovery(action));
+                        return Effect::none();
+                    }
+                    let mut next = action.clone();
+                    next.target = ManageRecoveryTarget::AddQuestion;
+                    next.step = ManageRecoveryStep::AddQuestionText;
+                    state.ui_state.input_buffer.clear();
+                    state.ui_state.input_buffer.masked = false;
+                    state.login_screen.error_message = None;
+                    state.settings_state.security_action =
+                        Some(SecurityActionState::ManageRecovery(next));
+                }
+
+                _ => {
+                    // Ignore unknown chars in list mode
+                    state.settings_state.security_action =
+                        Some(SecurityActionState::ManageRecovery(action));
+                }
+            }
+            Effect::none()
+        }
+
+        // ── Edit question text ───────────────────────────────────────────────
+        ManageRecoveryStep::EditQuestionText => {
+            let new_text = input.trim().to_string();
+            if new_text.is_empty() {
+                state.login_screen.error_message =
+                    Some("Question text cannot be empty".to_string());
+                state.settings_state.security_action =
+                    Some(SecurityActionState::ManageRecovery(action));
+                return Effect::none();
+            }
+
+            let idx = match &action.target {
+                ManageRecoveryTarget::EditQuestionText(i) => *i,
+                _ => {
+                    state.settings_state.security_action = None;
+                    return Effect::none();
+                }
+            };
+
+            // Update question text directly in metadata (no crypto rebuild needed)
+            if let Some(ref mut meta) = vault_state.recovery_metadata {
+                if let Some(q) = meta.questions.get_mut(idx) {
+                    q.question = new_text.clone();
+                }
+            }
+            if let Some(q) = vault_state.vault.security_questions.get_mut(idx) {
+                q.question = new_text;
+            }
+            vault_state.mark_dirty();
+
+            state.settings_state.security_action = None;
+            state.ui_state.input_buffer.clear();
+            state.ui_state.input_buffer.masked = false;
+            state.login_screen.error_message = None;
+            state.ui_state.notify("Question text updated", NotificationLevel::Success);
+
+            Effect::WriteVaultFile {
+                path: vault_state.vault_path.clone(),
+                vault: vault_state.vault.clone(),
+                key: vault_state.encryption_key,
+                salt: vault_state.salt,
+                has_keyfile: vault_state.has_keyfile,
+                encryption_method: vault_state.encryption_method,
+                recovery_metadata: vault_state.recovery_metadata.clone(),
+            }
+        }
+
+        // ── Add question – text step ─────────────────────────────────────────
+        ManageRecoveryStep::AddQuestionText => {
+            let q_text = input.trim().to_string();
+            if q_text.is_empty() {
+                state.login_screen.error_message =
+                    Some("Question text cannot be empty".to_string());
+                state.settings_state.security_action =
+                    Some(SecurityActionState::ManageRecovery(action));
+                return Effect::none();
+            }
+            let mut next = action.clone();
+            next.new_question_text = Some(q_text);
+            next.step = ManageRecoveryStep::AddAnswerText;
+            state.ui_state.input_buffer.clear();
+            state.ui_state.input_buffer.masked = true;
+            state.login_screen.error_message = None;
+            state.settings_state.security_action =
+                Some(SecurityActionState::ManageRecovery(next));
+            Effect::none()
+        }
+
+        // ── Add question – answer step ───────────────────────────────────────
+        ManageRecoveryStep::AddAnswerText => {
+            let a_text = input.trim().to_string();
+            if a_text.is_empty() {
+                state.login_screen.error_message =
+                    Some("Answer cannot be empty".to_string());
+                state.settings_state.security_action =
+                    Some(SecurityActionState::ManageRecovery(action));
+                return Effect::none();
+            }
+            let q_count = vault_state
+                .recovery_metadata
+                .as_ref()
+                .map(|m| m.questions.len())
+                .unwrap_or(0);
+
+            let mut next = action.clone();
+            next.new_answer_text = Some(a_text);
+
+            if q_count == 0 {
+                // No existing questions → rebuild directly with just the new Q&A
+                return manage_recovery_rebuild(state, next);
+            }
+
+            // Need to collect existing answers first
+            next.collected_answers = vec![None; q_count];
+            next.collect_idx = 0;
+            next.step = ManageRecoveryStep::CollectExistingAnswer;
+            state.ui_state.input_buffer.clear();
+            state.ui_state.input_buffer.masked = true;
+            let existing_q = vault_state
+                .recovery_metadata
+                .as_ref()
+                .and_then(|m| m.questions.first())
+                .map(|q| q.question.clone())
+                .unwrap_or_default();
+            state.login_screen.error_message =
+                Some(format!("Enter existing answer for: {}", existing_q));
+            state.settings_state.security_action =
+                Some(SecurityActionState::ManageRecovery(next));
+            Effect::none()
+        }
+
+        // ── Collect existing answers (for rebuild) ───────────────────────────
+        ManageRecoveryStep::CollectExistingAnswer => {
+            if input.trim().is_empty() {
+                state.login_screen.error_message =
+                    Some("Answer cannot be empty".to_string());
+                state.settings_state.security_action =
+                    Some(SecurityActionState::ManageRecovery(action));
+                return Effect::none();
+            }
+
+            let mut next = action.clone();
+
+            // Store the answer we just collected
+            let questions: Vec<String> = vault_state
+                .recovery_metadata
+                .as_ref()
+                .map(|m| m.questions.iter().map(|q| q.question.clone()).collect())
+                .unwrap_or_default();
+
+            match &next.target {
+                ManageRecoveryTarget::DeleteQuestion(del_idx) => {
+                    let del_idx = *del_idx;
+                    // Map collect_idx to actual question index (skip deleted)
+                    let _actual_idx = collect_idx_to_actual(next.collect_idx, del_idx, questions.len());
+                    if let Some(slot) = next.collected_answers.get_mut(next.collect_idx) {
+                        *slot = Some(input.clone());
+                    }
+                    next.collect_idx += 1;
+
+                    // Check if we've collected all remaining answers
+                    let remaining = questions.len() - 1;
+                    if next.collect_idx >= remaining {
+                        return manage_recovery_rebuild(state, next);
+                    }
+
+                    // Continue collecting next answer
+                    let next_actual = collect_idx_to_actual(next.collect_idx, del_idx, questions.len());
+                    let next_q = questions.get(next_actual).cloned().unwrap_or_default();
+                    state.login_screen.error_message =
+                        Some(format!("Enter answer for: {}", next_q));
+                }
+                ManageRecoveryTarget::EditAnswer(_) | ManageRecoveryTarget::AddQuestion => {
+                    if let Some(slot) = next.collected_answers.get_mut(next.collect_idx) {
+                        *slot = Some(input.clone());
+                    }
+                    next.collect_idx += 1;
+
+                    // Check if we've collected all answers
+                    if next.collect_idx >= next.collected_answers.len() {
+                        return manage_recovery_rebuild(state, next);
+                    }
+
+                    // Continue collecting
+                    let next_q = questions
+                        .get(next.collect_idx)
+                        .cloned()
+                        .unwrap_or_default();
+                    state.login_screen.error_message =
+                        Some(format!("Enter answer for: {}", next_q));
+                }
+                _ => {
+                    state.settings_state.security_action = None;
+                    return Effect::none();
+                }
+            }
+
+            state.ui_state.input_buffer.clear();
+            state.ui_state.input_buffer.masked = true;
+            state.settings_state.security_action =
+                Some(SecurityActionState::ManageRecovery(next));
+            Effect::none()
+        }
+
+        // ── Confirm disable recovery (single question delete) ────────────────
+        ManageRecoveryStep::ConfirmDisableRecovery => {
+            if input.trim().to_uppercase() == "YES" {
+                vault_state.recovery_metadata = None;
+                vault_state.vault.security_questions.clear();
+                vault_state.mark_dirty();
+
+                state.settings_state.security_action = None;
+                state.ui_state.input_buffer.clear();
+                state.ui_state.input_buffer.masked = false;
+                state.login_screen.error_message = None;
+                state.ui_state.notify("Recovery disabled for this vault", NotificationLevel::Success);
+
+                Effect::WriteVaultFile {
+                    path: vault_state.vault_path.clone(),
+                    vault: vault_state.vault.clone(),
+                    key: vault_state.encryption_key,
+                    salt: vault_state.salt,
+                    has_keyfile: vault_state.has_keyfile,
+                    encryption_method: vault_state.encryption_method,
+                    recovery_metadata: vault_state.recovery_metadata.clone(),
+                }
+            } else {
+                state.login_screen.error_message =
+                    Some("Type YES (uppercase) to confirm".to_string());
+                state.ui_state.input_buffer.clear();
+                state.settings_state.security_action =
+                    Some(SecurityActionState::ManageRecovery(action));
+                Effect::none()
+            }
+        }
+    }
+}
+
+/// Map a "remaining index" (skipping del_idx) to the actual question index.
+fn collect_idx_to_actual(collect_idx: usize, del_idx: usize, total: usize) -> usize {
+    let mut actual = 0usize;
+    let mut remaining_seen = 0usize;
+    for i in 0..total {
+        if i == del_idx {
+            continue;
+        }
+        if remaining_seen == collect_idx {
+            actual = i;
+            break;
+        }
+        remaining_seen += 1;
+    }
+    actual
+}
+
+/// Rebuild RecoveryMetadata from the collected answers and target operation, then save.
+fn manage_recovery_rebuild(state: &mut AppState, action: ManageRecoveryAction) -> Effect {
+    let Some(vault_state) = state.vault_state.as_mut() else {
+        state.settings_state.security_action = None;
+        return Effect::none();
+    };
+
+    let current_password = match &action.current_password {
+        Some(p) => p.clone(),
+        None => {
+            state.login_screen.error_message = Some("Session expired".to_string());
+            state.settings_state.security_action = None;
+            return Effect::none();
+        }
+    };
+
+    let existing_questions: Vec<crate::domain::SecurityQuestion> = vault_state
+        .recovery_metadata
+        .as_ref()
+        .map(|m| m.questions.clone())
+        .unwrap_or_default();
+
+    // Build new Q&A pairs based on target operation
+    let new_qa_pairs: Vec<(String, crate::crypto::SecureString)> = match &action.target {
+        ManageRecoveryTarget::EditAnswer(edit_idx) => {
+            let _edit_idx = *edit_idx;
+            existing_questions
+                .iter()
+                .enumerate()
+                .map(|(i, q)| {
+                    let answer_text = action
+                        .collected_answers
+                        .get(i)
+                        .and_then(|a| a.as_deref())
+                        .unwrap_or("")
+                        .to_string();
+                    (
+                        q.question.clone(),
+                        crate::crypto::SecureString::new(answer_text),
+                    )
+                })
+                .collect()
+        }
+
+        ManageRecoveryTarget::DeleteQuestion(del_idx) => {
+            let del_idx = *del_idx;
+            let mut pairs = Vec::new();
+            let mut remaining_idx = 0usize;
+            for (i, q) in existing_questions.iter().enumerate() {
+                if i == del_idx {
+                    continue;
+                }
+                let answer_text = action
+                    .collected_answers
+                    .get(remaining_idx)
+                    .and_then(|a| a.as_deref())
+                    .unwrap_or("")
+                    .to_string();
+                pairs.push((
+                    q.question.clone(),
+                    crate::crypto::SecureString::new(answer_text),
+                ));
+                remaining_idx += 1;
+            }
+            pairs
+        }
+
+        ManageRecoveryTarget::AddQuestion => {
+            let new_q = action.new_question_text.clone().unwrap_or_default();
+            let new_a = action.new_answer_text.clone().unwrap_or_default();
+
+            let mut pairs: Vec<(String, crate::crypto::SecureString)> = existing_questions
+                .iter()
+                .enumerate()
+                .map(|(i, q)| {
+                    let answer_text = action
+                        .collected_answers
+                        .get(i)
+                        .and_then(|a| a.as_deref())
+                        .unwrap_or("")
+                        .to_string();
+                    (
+                        q.question.clone(),
+                        crate::crypto::SecureString::new(answer_text),
+                    )
+                })
+                .collect();
+            pairs.push((new_q, crate::crypto::SecureString::new(new_a)));
+            pairs
+        }
+
+        _ => {
+            state.settings_state.security_action = None;
+            return Effect::none();
+        }
+    };
+
+    if new_qa_pairs.is_empty() {
+        // This shouldn't happen, but guard
+        state.settings_state.security_action = None;
+        state.login_screen.error_message = Some("No Q&A pairs to rebuild with".to_string());
+        return Effect::none();
+    }
+
+    let secure_pass = crate::crypto::SecureString::new(current_password);
+    let metadata = match crate::domain::RecoveryMetadata::build(
+        new_qa_pairs,
+        &secure_pass,
+        vault_state.encryption_method,
+    ) {
+        Ok(m) => m,
+        Err(e) => {
+            state.login_screen.error_message =
+                Some(format!("Failed to rebuild recovery: {}", e));
+            state.settings_state.security_action =
+                Some(SecurityActionState::ManageRecovery(action));
+            return Effect::none();
+        }
+    };
+
+    vault_state.vault.security_questions = metadata.questions.clone();
+    vault_state.recovery_metadata = Some(metadata);
+    vault_state.mark_dirty();
+
+    state.settings_state.security_action = None;
+    state.ui_state.input_buffer.clear();
+    state.ui_state.input_buffer.masked = false;
+    state.login_screen.error_message = None;
+    state.ui_state.notify("Recovery questions updated", NotificationLevel::Success);
+
+    Effect::WriteVaultFile {
+        path: vault_state.vault_path.clone(),
+        vault: vault_state.vault.clone(),
+        key: vault_state.encryption_key,
+        salt: vault_state.salt,
+        has_keyfile: vault_state.has_keyfile,
+        encryption_method: vault_state.encryption_method,
+        recovery_metadata: vault_state.recovery_metadata.clone(),
     }
 }
 
@@ -2302,7 +3127,10 @@ fn settings_option_count(_state: &AppState, setting_index: usize) -> usize {
         SettingKind::AutoLock | SettingKind::ShowIcons | SettingKind::MouseEnabled => 2,
         SettingKind::AutoLockTimeout => 5,
         SettingKind::ClipboardTimeout => 5,
-        SettingKind::ChangeMasterPassword | SettingKind::ConfigureRecovery => 0,
+        SettingKind::ChangeMasterPassword
+        | SettingKind::AddKeyfile
+        | SettingKind::ManageRecovery
+        | SettingKind::ConfigureRecovery => 0,
     }
 }
 
