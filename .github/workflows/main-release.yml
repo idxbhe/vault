@@ -1,15 +1,14 @@
-name: Build Binaries
+name: Main Branch Release
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - main
 
 permissions:
   contents: write
 
 env:
-  # Memaksa penggunaan Node.js 24 untuk menghilangkan warning deprecation
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
@@ -64,11 +63,45 @@ jobs:
             tar czf ../../../vault-${{ matrix.platform.os-name }}.tar.gz ${{ matrix.platform.binary-name }}
           fi
 
-      - name: Upload binaries to Release
-        uses: softprops/action-gh-release@v2
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
-          files: |
+          name: binaries-${{ matrix.platform.os-name }}
+          path: |
             vault-${{ matrix.platform.os-name }}.tar.gz
             vault-${{ matrix.platform.os-name }}.zip
+          if-no-files-found: error
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+            path: artifacts
+            merge-multiple: true
+
+      - name: Get Version
+        id: get_version
+        run: |
+          VERSION=$(grep '^version =' Cargo.toml | head -n1 | cut -d '"' -f2)
+          echo "version=v$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.get_version.outputs.version }}
+          name: Release ${{ steps.get_version.outputs.version }}
+          files: artifacts/*
+          generate_release_notes: true
+          draft: false
+          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
