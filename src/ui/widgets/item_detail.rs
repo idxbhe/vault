@@ -3,7 +3,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Wrap},
+    widgets::{Block, Borders, Padding, Paragraph, Wrap},
 };
 
 use chrono::{DateTime, Utc};
@@ -37,7 +37,7 @@ fn estimate_height(text: &str, width: u16) -> u16 {
         let l = (chars / w).ceil() as usize;
         lines += l.max(1);
     }
-    (lines as u16 + 2).min(12).max(4) // capped between 4 and 12 lines
+    (lines as u16 + 2).min(16).max(4) // capped between 4 and 16 lines
 }
 
 pub fn render(
@@ -213,10 +213,11 @@ pub fn render(
                         ratatui::text::Line::from(format!(" {} ", label))
                             .alignment(ratatui::layout::Alignment::Center)
                             .style(Style::default().fg(theme.fg_muted)),
-                    );
+                    )
+                    .padding(Padding::horizontal(1));
 
                 let display_value = if *is_sensitive {
-                    if !revealed || !field_is_focused {
+                    if !revealed {
                         mask::mask_content(value)
                     } else {
                         value.to_string()
@@ -228,6 +229,7 @@ pub fn render(
                 let scroll_val = state.ui_state.field_scrolls.get(idx).copied().unwrap_or(0);
                 let p = Paragraph::new(display_value)
                     .block(field_block)
+                    .alignment(Alignment::Center)
                     .style(Style::default().fg(if *is_sensitive && !revealed { theme.sensitive_mask } else { theme.fg }))
                     .wrap(Wrap { trim: false })
                     .scroll((scroll_val, 0));
@@ -251,7 +253,8 @@ pub fn render(
                         ratatui::text::Line::from(" Notes ")
                             .alignment(ratatui::layout::Alignment::Center)
                             .style(Style::default().fg(theme.fg_muted)),
-                    );
+                    )
+                    .padding(Padding::horizontal(1));
 
                 let np = Paragraph::new(item.notes.as_deref().unwrap_or(""))
                     .block(notes_block)
@@ -324,7 +327,7 @@ fn build_standard_lines<'a>(
     for &idx in fields_idx {
         let (label, value, is_sensitive, _) = &fields[idx];
         let is_selected = is_focused && detail_focus == crate::app::state::DetailFocus::Field(idx);
-        let display_value = if *is_sensitive { if !revealed || !is_selected { mask::mask_content(value) } else { value.to_string() } } else { value.to_string() };
+        let display_value = if *is_sensitive { if !revealed { mask::mask_content(value) } else { value.to_string() } } else { value.to_string() };
         let bg_color = if is_selected { theme.selection_bg } else { theme.bg };
         
         let mut dv = display_value;
@@ -340,7 +343,7 @@ fn build_standard_lines<'a>(
         spans.push(Span::styled(format!("{}: ", label), Style::default().fg(if is_selected { theme.fg } else { theme.fg_muted }).bg(bg_color)));
 
         let mut timer_span = None;
-        if label == "TOTP Code" && revealed {
+        if label == "TOTP Code" {
             let remaining = 30 - (chrono::Utc::now().timestamp() % 30);
             timer_span = Some(Span::styled(format!(" ({}s)", remaining), Style::default().fg(theme.fg_muted).bg(bg_color)));
         }
