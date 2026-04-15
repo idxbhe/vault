@@ -2485,10 +2485,13 @@ fn create_item_from_form(
         .get_value(&FormField::Title)
         .unwrap_or("Untitled")
         .to_string();
-    let notes = form
-        .get_value(&FormField::Notes)
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_string());
+    let notes = if matches!(form.kind, crate::domain::ItemKind::SecureNote) {
+        None
+    } else {
+        form.get_value(&FormField::Notes)
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+    };
 
     let content = match form.kind {
         crate::domain::ItemKind::Generic | crate::domain::ItemKind::SecureNote => {
@@ -2576,11 +2579,15 @@ fn create_updates_from_form(
     use crate::ui::widgets::FormField;
 
     let title = form.get_value(&FormField::Title).map(|s| s.to_string());
-    let notes = Some(
-        form.get_value(&FormField::Notes)
-            .filter(|s| !s.is_empty())
-            .map(|s| s.to_string()),
-    );
+    let notes = if matches!(form.kind, crate::domain::ItemKind::SecureNote) {
+        Some(None)
+    } else {
+        Some(
+            form.get_value(&FormField::Notes)
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string()),
+        )
+    };
 
     let content = match form.kind {
         crate::domain::ItemKind::Generic | crate::domain::ItemKind::SecureNote => {

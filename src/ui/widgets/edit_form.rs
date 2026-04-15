@@ -252,7 +252,9 @@ fn get_fields_for_kind(kind: ItemKind) -> Vec<FormField> {
         }
     }
 
-    fields.push(FormField::Notes);
+    if !matches!(kind, ItemKind::SecureNote) {
+        fields.push(FormField::Notes);
+    }
     fields
 }
 
@@ -289,12 +291,15 @@ pub fn render(
     let form_width = area.width.min(70);
     let mut total_fields_height: u16 = 0;
     for field in visible_fields {
-        if is_single_field && (*field == FormField::Notes || *field == FormField::SeedPhrase || *field == FormField::Content || *field == FormField::ApiKey) {
-            total_fields_height += 10; // Extra room for single field edit
-        } else if *field == FormField::Notes || *field == FormField::SeedPhrase || *field == FormField::Content || *field == FormField::ApiKey {
-            total_fields_height += 6; // Multiline fields
+        let is_multiline = *field == FormField::Notes || *field == FormField::SeedPhrase || *field == FormField::Content || *field == FormField::ApiKey;
+        if is_single_field && is_multiline {
+            total_fields_height += 10;
+        } else if *field == FormField::Content && matches!(form_state.kind, ItemKind::SecureNote) {
+            total_fields_height += 15; // SecureNote content should be very tall
+        } else if is_multiline {
+            total_fields_height += 6;
         } else {
-            total_fields_height += 3; // Standard single-line fields
+            total_fields_height += 3;
         }
     }
     let form_height = (total_fields_height + 6).min(area.height);
@@ -361,7 +366,10 @@ pub fn render(
     let mut constraints: Vec<Constraint> = visible_fields
         .iter()
         .map(|f| {
-            if *f == FormField::Notes || *f == FormField::SeedPhrase || *f == FormField::Content || *f == FormField::ApiKey {
+            let is_multiline = *f == FormField::Notes || *f == FormField::SeedPhrase || *f == FormField::Content || *f == FormField::ApiKey;
+            if *f == FormField::Content && matches!(form_state.kind, ItemKind::SecureNote) {
+                Constraint::Length(15)
+            } else if is_multiline {
                 if is_single_field {
                     Constraint::Min(10)
                 } else {

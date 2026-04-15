@@ -139,7 +139,10 @@ pub fn render(
             }
             ViewComponent::SpecializedBox(idx) => {
                 let (_, value, _, _) = &fields[*idx];
-                let h = estimate_height(value, inner_area.width);
+                let mut h = estimate_height(value, inner_area.width);
+                if matches!(item.kind, crate::domain::ItemKind::SecureNote) {
+                    h = h.max(15);
+                }
                 constraints.push(Constraint::Length(h));
             }
             ViewComponent::NotesBox => {
@@ -234,7 +237,7 @@ pub fn render(
                 let scroll_val = state.ui_state.field_scrolls.get(idx).copied().unwrap_or(0);
                 let p = Paragraph::new(display_value)
                     .block(field_block)
-                    .alignment(Alignment::Center)
+                    .alignment(if matches!(item.kind, crate::domain::ItemKind::SecureNote) { Alignment::Left } else { Alignment::Center })
                     .style(Style::default().fg(if *is_sensitive && !revealed { theme.sensitive_mask } else { theme.fg }))
                     .wrap(Wrap { trim: false })
                     .scroll((scroll_val, 0));
