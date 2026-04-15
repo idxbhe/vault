@@ -20,8 +20,8 @@ pub mod ui {
     pub const VAULT_UNLOCKED: &str = "󰌿";
     pub const FOLDER: &str = "";
     pub const FILE: &str = "";
-    pub const SEARCH: &str = "";
-    pub const SETTINGS: &str = "";
+    pub const SEARCH: &str = "󰍉";
+    pub const SETTINGS: &str = "󰒓";
     pub const HELP: &str = "󰋖";
     pub const CLOSE: &str = "󰅖";
     pub const CHECK: &str = "";
@@ -38,8 +38,9 @@ pub mod ui {
     pub const EDIT: &str = "";
     pub const DELETE: &str = "󰆴";
     pub const ADD: &str = "";
-    pub const CLOCK: &str = "";
-    pub const TAG: &str = "";
+    pub const CLOCK: &str = "󰔛";
+    pub const IMAGE: &str = "󰙏";
+    pub const TAG: &str = "󰓹";
     pub const ARROW_RIGHT: &str = "";
     pub const ARROW_LEFT: &str = "";
     pub const ARROW_UP: &str = "";
