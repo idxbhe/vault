@@ -20,6 +20,7 @@ enum ViewComponent {
     SpecializedBox(usize),
     NotesBox,
     Metadata,
+    Spacer,
     Buttons,
 }
 
@@ -119,6 +120,7 @@ pub fn render(
     }
 
     components.push(ViewComponent::Metadata);
+    components.push(ViewComponent::Spacer);
     components.push(ViewComponent::Buttons);
 
     let mut constraints = Vec::new();
@@ -146,6 +148,9 @@ pub fn render(
             }
             ViewComponent::Metadata => {
                 constraints.push(Constraint::Length(3)); // Blank, Created, Updated
+            }
+            ViewComponent::Spacer => {
+                constraints.push(Constraint::Min(0));
             }
             ViewComponent::Buttons => {
                 constraints.push(Constraint::Length(1));
@@ -278,6 +283,7 @@ pub fn render(
                 let p = Paragraph::new(lines).alignment(Alignment::Left);
                 frame.render_widget(p, chunk);
             }
+            ViewComponent::Spacer => {}
             ViewComponent::Buttons => {
                 render_action_buttons(frame, chunk, state, revealed, theme);
             }
