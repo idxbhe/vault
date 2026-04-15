@@ -115,7 +115,7 @@ pub fn render(
         });
     }
 
-    if item.notes.is_some() {
+    if item.notes.is_some() && !matches!(item.kind, crate::domain::ItemKind::SecureNote) {
         components.push(ViewComponent::NotesBox);
     }
 
@@ -143,7 +143,7 @@ pub fn render(
                 constraints.push(Constraint::Length(h));
             }
             ViewComponent::NotesBox => {
-                let h = estimate_height(item.notes.as_deref().unwrap_or(""), inner_area.width);
+                let h = estimate_height(item.notes.as_deref().unwrap_or(""), inner_area.width).max(10);
                 constraints.push(Constraint::Length(h));
             }
             ViewComponent::Metadata => {
