@@ -262,6 +262,8 @@ pub struct UIState {
     pub detail_scroll_offset: usize,
     /// Focus state in the detail view
     pub detail_focus: DetailFocus,
+    /// Scroll offset for multiline fields in detail view
+    pub field_scrolls: std::collections::HashMap<usize, u16>,
     /// Scroll offset for the notes field in detail view
     pub notes_scroll_offset: u16,
     /// Scroll offset for the category bar

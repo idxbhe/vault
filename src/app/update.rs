@@ -51,6 +51,7 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
                 state.ui_state.detail_scroll_offset = 0;
                 state.ui_state.detail_focus = crate::app::state::DetailFocus::Field(0);
                 state.ui_state.notes_scroll_offset = 0;
+                state.ui_state.field_scrolls.clear();
             }
             Effect::none()
         }
@@ -355,6 +356,7 @@ pub fn update(state: &mut AppState, message: Message) -> Effect {
                 state.ui_state.detail_scroll_offset = 0;
                 state.ui_state.detail_focus = crate::app::state::DetailFocus::Field(0);
                 state.ui_state.notes_scroll_offset = 0;
+                state.ui_state.field_scrolls.clear();
             }
             Effect::none()
         }

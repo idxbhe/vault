@@ -5,7 +5,7 @@ pub const MASK_CHAR: char = '•';
 
 /// Masks sensitive content with bullet characters
 pub fn mask_content(content: &str) -> String {
-    MASK_CHAR.to_string().repeat(content.len().min(32))
+    MASK_CHAR.to_string().repeat(content.len())
 }
 
 /// Masks content but preserves length indication

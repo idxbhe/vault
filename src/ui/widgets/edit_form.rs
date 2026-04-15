@@ -287,12 +287,17 @@ pub fn render(
 
     // Calculate form dimensions
     let form_width = area.width.min(70);
-    let mut form_height = (visible_fields.len() as u16 * 3 + 6).min(area.height);
-
-    // Notes field needs more space if it's the only one shown
-    if is_single_field && visible_fields[0] == FormField::Notes {
-        form_height = area.height.min(20).max(form_height);
+    let mut total_fields_height: u16 = 0;
+    for field in visible_fields {
+        if is_single_field && (*field == FormField::Notes || *field == FormField::SeedPhrase || *field == FormField::Content || *field == FormField::ApiKey) {
+            total_fields_height += 10; // Extra room for single field edit
+        } else if *field == FormField::Notes || *field == FormField::SeedPhrase || *field == FormField::Content || *field == FormField::ApiKey {
+            total_fields_height += 6; // Multiline fields
+        } else {
+            total_fields_height += 3; // Standard single-line fields
+        }
     }
+    let form_height = (total_fields_height + 6).min(area.height);
 
     let x = (area.width.saturating_sub(form_width)) / 2;
     let y = (area.height.saturating_sub(form_height)) / 2;
@@ -356,8 +361,12 @@ pub fn render(
     let mut constraints: Vec<Constraint> = visible_fields
         .iter()
         .map(|f| {
-            if is_single_field && *f == FormField::Notes {
-                Constraint::Min(5)
+            if *f == FormField::Notes || *f == FormField::SeedPhrase || *f == FormField::Content || *f == FormField::ApiKey {
+                if is_single_field {
+                    Constraint::Min(10)
+                } else {
+                    Constraint::Length(6)
+                }
             } else {
                 Constraint::Length(3)
             }
