@@ -174,7 +174,8 @@ pub fn render(
         
         match comp {
             ViewComponent::HeaderAndStandard(fields_idx) => {
-                let lines = build_standard_lines(true, &item, tags, fields_idx, revealed, theme, state.ui_state.detail_focus, is_focused);
+                let icon_color = state.config.icon_color.to_color(theme);
+                let lines = build_standard_lines(true, &item, tags, fields_idx, revealed, icon_color, theme, state.ui_state.detail_focus, is_focused);
                 let p = Paragraph::new(lines).wrap(Wrap { trim: false });
                 frame.render_widget(p, chunk);
                 
@@ -193,7 +194,8 @@ pub fn render(
                 }
             }
             ViewComponent::Standard(fields_idx) => {
-                let lines = build_standard_lines(false, &item, tags, fields_idx, revealed, theme, state.ui_state.detail_focus, is_focused);
+                let icon_color = state.config.icon_color.to_color(theme);
+                let lines = build_standard_lines(false, &item, tags, fields_idx, revealed, icon_color, theme, state.ui_state.detail_focus, is_focused);
                 let p = Paragraph::new(lines).wrap(Wrap { trim: false });
                 frame.render_widget(p, chunk);
                 
@@ -300,6 +302,7 @@ fn build_standard_lines<'a>(
     tags: &[Tag],
     fields_idx: &[usize],
     revealed: bool,
+    icon_color: ratatui::style::Color,
     theme: &'a ThemePalette,
     detail_focus: crate::app::state::DetailFocus,
     is_focused: bool,
@@ -308,7 +311,7 @@ fn build_standard_lines<'a>(
 
     if include_header {
         lines.push(Line::from(vec![
-            Span::styled(format!(" {} ", item.kind.icon()), Style::default().fg(theme.accent)),
+            Span::styled(format!(" {} ", item.kind.icon()), Style::default().fg(icon_color)),
             Span::styled(item.title.clone(), Style::default().fg(theme.fg).add_modifier(Modifier::BOLD)),
             if item.favorite { Span::styled(format!(" {}", icons::ui::STAR), Style::default().fg(theme.warning)) } else { Span::raw("") },
         ]));
@@ -344,7 +347,7 @@ fn build_standard_lines<'a>(
 
         let mut spans = vec![];
         if is_selected {
-            spans.push(Span::styled(" > ", Style::default().fg(theme.accent).bg(bg_color).add_modifier(Modifier::BOLD)));
+            spans.push(Span::styled(" > ", Style::default().fg(icon_color).bg(bg_color).add_modifier(Modifier::BOLD)));
         } else {
             spans.push(Span::styled("   ", Style::default().bg(bg_color)));
         }

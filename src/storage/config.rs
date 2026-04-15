@@ -22,6 +22,8 @@ pub struct AppConfig {
     pub show_icons: bool,
     /// Enable mouse support
     pub mouse_enabled: bool,
+    /// Custom icon color
+    pub icon_color: IconColorChoice,
 }
 
 impl Default for AppConfig {
@@ -33,6 +35,7 @@ impl Default for AppConfig {
             auto_lock_timeout_secs: 300, // 5 minutes
             show_icons: true,
             mouse_enabled: true,
+            icon_color: IconColorChoice::ThemeDefault,
         }
     }
 }
@@ -285,5 +288,65 @@ mod tests {
 
         let mode = std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o600);
+    }
+}
+
+/// Available icon color choices
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum IconColorChoice {
+    #[default]
+    ThemeDefault,
+    Red,
+    Green,
+    Blue,
+    Yellow,
+    Magenta,
+    Cyan,
+    White,
+}
+
+impl IconColorChoice {
+    /// Get display name
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            IconColorChoice::ThemeDefault => "Theme Default",
+            IconColorChoice::Red => "Red",
+            IconColorChoice::Green => "Green",
+            IconColorChoice::Blue => "Blue",
+            IconColorChoice::Yellow => "Yellow",
+            IconColorChoice::Magenta => "Magenta",
+            IconColorChoice::Cyan => "Cyan",
+            IconColorChoice::White => "White",
+        }
+    }
+
+    /// Get all available icon colors
+    pub fn all() -> &'static [IconColorChoice] {
+        &[
+            IconColorChoice::ThemeDefault,
+            IconColorChoice::Red,
+            IconColorChoice::Green,
+            IconColorChoice::Blue,
+            IconColorChoice::Yellow,
+            IconColorChoice::Magenta,
+            IconColorChoice::Cyan,
+            IconColorChoice::White,
+        ]
+    }
+
+    /// Convert to ratatui Color
+    pub fn to_color(&self, theme: &crate::ui::theme::ThemePalette) -> ratatui::style::Color {
+        use ratatui::style::Color;
+        match self {
+            IconColorChoice::ThemeDefault => theme.accent,
+            IconColorChoice::Red => Color::Red,
+            IconColorChoice::Green => Color::Green,
+            IconColorChoice::Blue => Color::Blue,
+            IconColorChoice::Yellow => Color::Yellow,
+            IconColorChoice::Magenta => Color::Magenta,
+            IconColorChoice::Cyan => Color::Cyan,
+            IconColorChoice::White => Color::White,
+        }
     }
 }

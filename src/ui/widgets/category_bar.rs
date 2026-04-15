@@ -21,6 +21,7 @@ pub fn render(
     area: Rect,
     selected_kind: Option<ItemKind>,
     scroll_offset: &mut u16,
+    icon_color: ratatui::style::Color,
     theme: &ThemePalette,
 ) -> CategoryBarClickRegions {
     let mut option_regions = Vec::new();
@@ -104,7 +105,7 @@ pub fn render(
         spans.push(Span::styled(
             " < ",
             Style::default()
-                .fg(theme.accent)
+                .fg(icon_color)
                 .add_modifier(Modifier::BOLD),
         ));
         scroll_left = Some(ClickRegion::new(current_x, inner_area.y, 3, 1));
@@ -182,7 +183,7 @@ pub fn render(
         spans.push(Span::styled(
             " > ",
             Style::default()
-                .fg(theme.accent)
+                .fg(icon_color)
                 .add_modifier(Modifier::BOLD),
         ));
         scroll_right = Some(ClickRegion::new(current_x, inner_area.y, 3, 1));

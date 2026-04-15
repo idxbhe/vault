@@ -298,6 +298,7 @@ pub enum SettingKind {
     ShowIcons,
     MouseEnabled,
     ChangeMasterPassword,
+    IconColor,
     AddKeyfile,
     ManageRecovery,
     ConfigureRecovery,
@@ -313,6 +314,7 @@ impl SettingKind {
             SettingKind::ShowIcons,
             SettingKind::MouseEnabled,
             SettingKind::ChangeMasterPassword,
+            SettingKind::IconColor,
             SettingKind::AddKeyfile,
             SettingKind::ManageRecovery,
             SettingKind::ConfigureRecovery,
@@ -328,6 +330,7 @@ impl SettingKind {
             SettingKind::ShowIcons => "Show Icons",
             SettingKind::MouseEnabled => "Mouse Support",
             SettingKind::ChangeMasterPassword => "Change Master Password",
+            SettingKind::IconColor => "Icon Color",
             SettingKind::AddKeyfile => "Add / Replace Keyfile",
             SettingKind::ManageRecovery => "Manage Recovery Q&A",
             SettingKind::ConfigureRecovery => "Reconfigure All Recovery",
@@ -343,6 +346,7 @@ impl SettingKind {
             SettingKind::ShowIcons => "",
             SettingKind::MouseEnabled => "󰍽",
             SettingKind::ChangeMasterPassword => "󰌾",
+            SettingKind::IconColor => "󰏘",
             SettingKind::AddKeyfile => "󰏖",
             SettingKind::ManageRecovery => "󱠇",
             SettingKind::ConfigureRecovery => "󱞁",
@@ -443,8 +447,9 @@ fn render_settings_list(
                 Style::default().fg(theme.fg)
             };
 
+            let icon_color = state.config.icon_color.to_color(theme);
             let line = Line::from(vec![
-                Span::styled(format!(" {} ", setting.icon()), style.fg(theme.accent)),
+                Span::styled(format!(" {} ", setting.icon()), style.fg(icon_color)),
                 Span::styled(format!("{:25}", setting.label()), style),
                 Span::styled(value, style.fg(theme.fg_muted)),
             ]);
@@ -621,6 +626,7 @@ fn get_setting_value(state: &AppState, setting: &SettingKind) -> String {
             }
         }
         SettingKind::ConfigureRecovery => "Reconfigure all →".to_string(),
+        SettingKind::IconColor => state.config.icon_color.display_name().to_string(),
     }
 }
 
@@ -647,6 +653,10 @@ fn get_setting_options(_state: &AppState, setting: &SettingKind) -> Vec<String> 
             "120s".to_string(),
             "Never".to_string(),
         ],
+        SettingKind::IconColor => crate::storage::IconColorChoice::all()
+            .iter()
+            .map(|c: &crate::storage::IconColorChoice| c.display_name().to_string())
+            .collect(),
         SettingKind::ChangeMasterPassword
         | SettingKind::AddKeyfile
         | SettingKind::ManageRecovery
@@ -689,6 +699,10 @@ pub fn get_current_sub_index(state: &AppState, setting_index: usize) -> usize {
             120 => 3,
             _ => 4,
         },
+        SettingKind::IconColor => crate::storage::IconColorChoice::all()
+            .iter()
+            .position(|c| *c == state.config.icon_color)
+            .unwrap_or(0),
         SettingKind::ChangeMasterPassword
         | SettingKind::AddKeyfile
         | SettingKind::ManageRecovery
@@ -735,6 +749,11 @@ pub fn apply_setting(state: &mut AppState, setting_index: usize, option_index: u
                 3 => 120,
                 _ => 0, // Never
             };
+        }
+        SettingKind::IconColor => {
+            if let Some(color) = crate::storage::IconColorChoice::all().get(option_index) {
+                state.config.icon_color = *color;
+            }
         }
         SettingKind::ChangeMasterPassword
         | SettingKind::AddKeyfile

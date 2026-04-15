@@ -3127,6 +3127,7 @@ fn settings_option_count(_state: &AppState, setting_index: usize) -> usize {
         SettingKind::AutoLock | SettingKind::ShowIcons | SettingKind::MouseEnabled => 2,
         SettingKind::AutoLockTimeout => 5,
         SettingKind::ClipboardTimeout => 5,
+        SettingKind::IconColor => crate::storage::IconColorChoice::all().len(),
         SettingKind::ChangeMasterPassword
         | SettingKind::AddKeyfile
         | SettingKind::ManageRecovery

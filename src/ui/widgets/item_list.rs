@@ -181,6 +181,7 @@ pub fn render(
                 item,
                 selected,
                 &state.vault_state.as_ref().unwrap().vault.tags,
+                state.config.icon_color.to_color(theme),
                 theme,
             )
         })
@@ -192,7 +193,8 @@ pub fn render(
         .as_ref()
         .map(|vs| vs.vault.name.as_str())
         .unwrap_or("Vault");
-    let title = build_title(vault_name, list_state.visible_items.len(), theme);
+    let icon_color = state.config.icon_color.to_color(theme);
+    let title = build_title(vault_name, list_state.visible_items.len(), icon_color, theme);
     let border_color = if focused {
         theme.border_focused
     } else {
@@ -233,13 +235,14 @@ fn create_list_item<'a>(
     item: &Item,
     _selected: bool,
     _tags: &[crate::domain::Tag],
+    icon_color: ratatui::style::Color,
     theme: &ThemePalette,
 ) -> ListItem<'a> {
     let icon = get_item_icon(item.kind);
     let fav_icon = if item.favorite { icons::ui::STAR } else { "" };
 
     let mut spans = vec![
-        Span::styled(format!("{} ", icon), Style::default().fg(theme.accent)),
+        Span::styled(format!("{} ", icon), Style::default().fg(icon_color)),
         Span::styled(item.title.clone(), Style::default().fg(theme.fg)),
     ];
 
@@ -276,11 +279,16 @@ fn get_item_icon(kind: ItemKind) -> &'static str {
 }
 
 /// Build the title spans
-fn build_title<'a>(vault_name: &str, count: usize, theme: &ThemePalette) -> Line<'a> {
+fn build_title<'a>(
+    vault_name: &str,
+    count: usize,
+    icon_color: ratatui::style::Color,
+    theme: &ThemePalette,
+) -> Line<'a> {
     Line::from(vec![
         Span::styled(
             format!(" {} ", icons::ui::VAULT),
-            Style::default().fg(theme.accent),
+            Style::default().fg(icon_color),
         ),
         Span::styled(
             vault_name.to_string(),
@@ -299,7 +307,9 @@ fn render_empty(frame: &mut Frame, area: Rect, message: &str, theme: &ThemePalet
         .borders(Borders::ALL)
         .border_type(ratatui::widgets::BorderType::Rounded)
         .border_style(Style::default().fg(theme.border))
-        .title(Span::styled(" Items ", Style::default().fg(theme.accent)));
+        .title(Span::styled(" Items ", Style::default().fg(theme.accent))); // Keeping theme.accent for title text style unless user wants it changed too.
+        // Actually, let's change title icon color too if we can.
+        // But render_empty is for empty states. Let's just stick to what we planned.
 
     let paragraph = ratatui::widgets::Paragraph::new(message)
         .style(Style::default().fg(theme.fg_muted))

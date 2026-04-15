@@ -44,11 +44,13 @@ pub fn render(
         .split(area);
 
     // Category bar
+    let icon_color = state.config.icon_color.to_color(theme);
     let click_regions = category_bar::render(
         frame,
         main_chunks[0],
         state.ui_state.filter.kind,
         &mut state.ui_state.category_scroll,
+        icon_color,
         theme,
     );
 
