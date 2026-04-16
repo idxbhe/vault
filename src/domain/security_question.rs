@@ -168,7 +168,7 @@ impl RecoveryMetadata {
             let key = derive_key(&key_material, None, &salt, &params)?;
 
             let encrypted_hint =
-                encrypt_with_method(encryption_method, hint.as_bytes(), &key, salt, params)?;
+                encrypt_with_method(encryption_method, hint.as_bytes(), &key, salt, params, &[])?;
 
             stages.push(RecoveryStage {
                 required_correct: required_correct as u8,
@@ -203,7 +203,7 @@ impl RecoveryMetadata {
             &stage.encrypted_hint.argon2_params,
         )?;
 
-        let decrypted = decrypt_with_method(self.encryption_method, &stage.encrypted_hint, &key)?;
+        let decrypted = decrypt_with_method(self.encryption_method, &stage.encrypted_hint, &key, &[])?;
         String::from_utf8(decrypted).map_err(|_| Error::Decryption)
     }
 

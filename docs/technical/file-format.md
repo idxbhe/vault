@@ -15,20 +15,15 @@ File vault menggunakan format binary custom yang terdiri dari:
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│                        VAULT FILE                             │
-├──────────────────────────────────────────────────────────────┤
-│ Offset   │ Size     │ Field           │ Description          │
-├──────────┼──────────┼─────────────────┼──────────────────────┤
-│ 0x00     │ 4 bytes  │ Magic           │ "VALT" (0x56414C54)  │
-│ 0x04     │ 2 bytes  │ Version         │ Format version (LE)  │
-│ 0x06     │ 4 bytes  │ Header Length   │ Size of header (LE)  │
-│ 0x0A     │ variable │ Header          │ Bincode-serialized   │
+│ var      │ variable │ Header          │ Bincode-serialized   │
 │ var      │ 12 bytes │ Nonce           │ AES-GCM nonce        │
 │ var      │ 32 bytes │ Salt            │ Argon2 salt          │
 │ var      │ variable │ Argon2 Params   │ KDF parameters       │
 │ var      │ rest     │ Ciphertext      │ Encrypted + Auth Tag │
 └──────────────────────────────────────────────────────────────┘
 ```
+
+**Note:** Sejak versi 3, **Header** digunakan sebagai **AAD** (Additional Authenticated Data) untuk enkripsi payload. Ini berarti modifikasi apapun pada header akan menyebabkan proses dekripsi gagal (tamper-evident).
 
 ## Field Details
 
@@ -44,7 +39,7 @@ Digunakan untuk identifikasi cepat tipe file.
 ### Version (2 bytes)
 
 ```
-Current: 0x0001 (version 1)
+Current: 0x0003 (version 3)
 Format: Little-endian u16
 ```
 
@@ -61,32 +56,23 @@ Ukuran header dalam bytes, memungkinkan parser untuk skip ke encrypted section.
 
 ### Header (Variable)
 
-Serialized menggunakan bincode format:
+Serialisasi menggunakan bincode format:
 
 ```rust
 #[derive(Serialize, Deserialize)]
 pub struct VaultHeader {
-    /// Unique identifier for this vault
-    pub vault_id: Uuid,          // 16 bytes
-    
-    /// Human-readable name
-    pub vault_name: String,      // variable
-    
-    /// Creation timestamp
-    pub created_at: DateTime<Utc>, // 12 bytes
-    
-    /// Optional security questions for recovery
-    pub security_questions: Option<Vec<SecurityQuestion>>,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct SecurityQuestion {
-    pub question: String,
-    pub answer_hash: [u8; 32],  // SHA-256 of answer
+    pub vault_id: Uuid,
+    pub vault_name: String,
+    pub created_at: DateTime<Utc>,
+    pub has_keyfile: bool,
+    pub security_question_count: u8,
+    pub security_questions: Vec<String>,
+    pub encryption_method: EncryptionMethod,
+    pub recovery_metadata: Option<RecoveryMetadata>,
 }
 ```
 
-**Note:** Header TIDAK terenkripsi. Jangan simpan data sensitif di sini.
+**Penting (Versi 3+):** Raw bytes dari header ini digunakan sebagai **AAD** dalam payload AEAD. Modifikasi header tanpa melakukan enkripsi ulang akan merusak integritas file.
 
 ### Nonce (12 bytes)
 
@@ -221,8 +207,9 @@ pub struct Tag {
 2. Generate random 32-byte salt (if new) 
 3. Generate random 12-byte nonce
 4. Derive 256-bit key: Argon2id(password, salt)
-5. Encrypt: AES-256-GCM(plaintext, key, nonce)
-6. Build header and write file
+5. Serialize VaultHeader to bytes (AAD)
+6. Encrypt: AEAD(plaintext, key, nonce, AAD)
+7. Build file structure and write
 ```
 
 ```rust
@@ -267,11 +254,11 @@ pub fn write_vault(vault: &Vault, password: &str, path: &Path) -> Result<()> {
 
 ```
 1. Read and validate magic bytes
-2. Read version and header
-3. Read nonce, salt, argon2 params
-4. Read ciphertext
+2. Read version and header bytes
+3. Read encrypted payload metadata (nonce, salt, params)
+4. Parse header
 5. Derive key: Argon2id(password, salt)
-6. Decrypt: AES-256-GCM(ciphertext, key, nonce)
+6. Decrypt: AEAD(ciphertext, key, nonce, AAD=header_bytes)
 7. Deserialize VaultPayload from bincode
 ```
 
@@ -328,17 +315,20 @@ pub fn read_vault(path: &Path, password: &str) -> Result<Vault> {
 | Version | Changes |
 |---------|---------|
 | 1 | Initial release |
+| 2 | Added encryption method selection & recovery metadata |
+| 3 | Implemented AEAD with Header-as-AAD (Tamper-evident) |
 
 ## Compatibility
 
-- **Forward**: Old versions cannot read new formats
-- **Backward**: New versions can read old formats (planned)
+- **Forward**: Old versions cannot read new formats (v3)
+- **Backward**: New versions can read old formats (v1, v2) with empty AAD
 
 ## Security Considerations
 
 1. **Header Exposure**: Vault name visible without password
-2. **No Plausible Deniability**: Magic bytes identify file type
-3. **Metadata Leakage**: File size reveals approximate content size
+2. **Tamper Evidence**: Versi 3+ melindungi header dari modifikasi jahat menggunakan AAD.
+3. **No Plausible Deniability**: Magic bytes melindungi tipe file.
+4. **Metadata Leakage**: File size mengungkapkan perkiraan ukuran konten.
 
 ## File Extension
 
