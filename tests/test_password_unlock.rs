@@ -3,73 +3,74 @@ use vault::crypto::SecureString;
 use vault::storage::VaultFile;
 
 #[test]
-fn test_unlock_test_vault() {
-    // Test that test_vault.vault can be unlocked with password "testpass123"
+fn test_reject_legacy_v3_vault() {
+    // Explicitly verify that version 3 vault is rejected
     let vault_path = PathBuf::from("test_vault.vault");
+    if !vault_path.exists() { return; }
 
-    // Verify file exists
-    assert!(vault_path.exists(), "test_vault.vault should exist");
+    let result = VaultFile::read(&vault_path);
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(err.contains("Unsupported vault version"));
+    assert!(err.contains("version 4"));
+}
 
-    // Read the vault file
-    let vault_file = VaultFile::read(&vault_path).expect("Should be able to read test_vault.vault");
+#[test]
+fn test_unlock_v4_vault_roundtrip() {
+    use vault::domain::Vault;
+    use tempfile::tempdir;
 
-    // Try to decrypt with the correct password
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("v4_test.vault");
+    
+    let vault = Vault::new("V4 Vault");
+    let password = SecureString::new("v4password".to_string());
+    
+    // Create new v4 vault
+    vault::storage::create_vault(&path, &vault, &password, None).expect("Create v4");
+    
+    // Read and unlock
+    let loaded = vault::storage::open_vault(&path, &password, None).expect("Open v4");
+    assert_eq!(loaded.name, "V4 Vault");
+}
+
+#[test]
+fn test_unlock_wrong_password_v4() {
+    use vault::domain::Vault;
+    use tempfile::tempdir;
+
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("v4_wrong_pass.vault");
+    
+    let vault = Vault::new("Wrong Pass Test");
+    let password = SecureString::new("correct".to_string());
+    vault::storage::create_vault(&path, &vault, &password, None).unwrap();
+
+    let wrong_password = SecureString::new("wrong".to_string());
+    let result = vault::storage::open_vault(&path, &wrong_password, None);
+
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_password_with_whitespace_v4() {
+    use vault::domain::Vault;
+    use tempfile::tempdir;
+
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("v4_whitespace.vault");
+    
+    let vault = Vault::new("Whitespace Test");
     let password = SecureString::new("testpass123".to_string());
-    let result = vault_file.decrypt_with_key(&password, None);
-
-    match result {
-        Ok((vault, _key)) => {
-            println!("✅ Successfully unlocked vault");
-            println!("   Vault name: {}", vault.name);
-            println!("   Item count: {}", vault.items.len());
-            assert_eq!(vault.name, "Test Vault");
-        }
-        Err(e) => {
-            panic!("❌ Failed to unlock vault with correct password: {:?}", e);
-        }
-    }
-}
-
-#[test]
-fn test_unlock_wrong_password() {
-    // Verify that wrong password fails
-    let vault_path = PathBuf::from("test_vault.vault");
-
-    if !vault_path.exists() {
-        eprintln!("Skipping test - test_vault.vault not found");
-        return;
-    }
-
-    let vault_file = VaultFile::read(&vault_path).expect("Should be able to read test_vault.vault");
-
-    let wrong_password = SecureString::new("wrongpassword".to_string());
-    let result = vault_file.decrypt_with_key(&wrong_password, None);
-
-    assert!(result.is_err(), "Wrong password should fail to decrypt");
-}
-
-#[test]
-fn test_password_with_whitespace() {
-    // Test if whitespace affects password
-    let vault_path = PathBuf::from("test_vault.vault");
-
-    if !vault_path.exists() {
-        eprintln!("Skipping test - test_vault.vault not found");
-        return;
-    }
-
-    let vault_file = VaultFile::read(&vault_path).expect("Should be able to read test_vault.vault");
+    vault::storage::create_vault(&path, &vault, &password, None).unwrap();
 
     // Try with trailing whitespace
     let password_with_space = SecureString::new("testpass123 ".to_string());
-    let result = vault_file.decrypt_with_key(&password_with_space, None);
-
-    assert!(result.is_err(), "Password with trailing space should fail");
+    let result = vault::storage::open_vault(&path, &password_with_space, None);
+    assert!(result.is_err());
 
     // Try with leading whitespace
-    let vault_file2 = VaultFile::read(&vault_path).expect("read");
     let password_with_leading = SecureString::new(" testpass123".to_string());
-    let result2 = vault_file2.decrypt_with_key(&password_with_leading, None);
-
-    assert!(result2.is_err(), "Password with leading space should fail");
+    let result2 = vault::storage::open_vault(&path, &password_with_leading, None);
+    assert!(result2.is_err());
 }

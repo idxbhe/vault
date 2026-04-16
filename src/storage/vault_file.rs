@@ -18,9 +18,7 @@ use crate::utils::error::{Error, Result};
 pub const VAULT_MAGIC: &[u8; 4] = b"VALT";
 
 /// Current file format version
-pub const VAULT_VERSION: u16 = 3;
-const VAULT_VERSION_V2: u16 = 2;
-const VAULT_VERSION_V1: u16 = 1;
+pub const VAULT_VERSION: u16 = 4;
 const MAX_HEADER_SIZE: usize = 64 * 1024;
 const MAX_PAYLOAD_SIZE: usize = 16 * 1024 * 1024;
 
@@ -80,31 +78,6 @@ impl VaultFileHeader {
     }
 }
 
-/// Legacy header format for vault version 1.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct VaultFileHeaderV1 {
-    pub vault_id: Uuid,
-    pub vault_name: String,
-    pub created_at: DateTime<Utc>,
-    pub has_keyfile: bool,
-    pub security_question_count: u8,
-    pub security_questions: Vec<String>,
-}
-
-impl From<VaultFileHeaderV1> for VaultFileHeader {
-    fn from(v1: VaultFileHeaderV1) -> Self {
-        Self {
-            vault_id: v1.vault_id,
-            vault_name: v1.vault_name,
-            created_at: v1.created_at,
-            has_keyfile: v1.has_keyfile,
-            security_question_count: v1.security_question_count,
-            security_questions: v1.security_questions,
-            encryption_method: EncryptionMethod::Aes256Gcm,
-            recovery_metadata: None,
-        }
-    }
-}
 
 /// Complete vault file structure
 #[derive(Debug)]
@@ -291,10 +264,10 @@ impl VaultFile {
         file.read_exact(&mut version_bytes)
             .map_err(|e| Error::FileRead(path.to_path_buf(), e))?;
         let version = u16::from_le_bytes(version_bytes);
-        if version > VAULT_VERSION {
+        if version != VAULT_VERSION {
             return Err(Error::InvalidVaultFormat(format!(
-                "Unsupported vault version: {}",
-                version
+                "Unsupported vault version: {}. This version of Vault only supports version {}.",
+                version, VAULT_VERSION
             )));
         }
 
@@ -315,29 +288,9 @@ impl VaultFile {
         file.read_exact(&mut header_bytes)
             .map_err(|e| Error::FileRead(path.to_path_buf(), e))?;
 
-        let (header, aad_bytes) = match version {
-            VAULT_VERSION_V1 => {
-                let old: VaultFileHeaderV1 = bincode::deserialize(&header_bytes)
-                    .map_err(|e| Error::InvalidVaultFormat(format!("Invalid v1 header: {}", e)))?;
-                (old.into(), Vec::new())
-            }
-            VAULT_VERSION_V2 => {
-                let header: VaultFileHeader = bincode::deserialize(&header_bytes)
-                    .map_err(|e| Error::InvalidVaultFormat(format!("Invalid v2 header: {}", e)))?;
-                (header, Vec::new())
-            }
-            VAULT_VERSION => {
-                let header: VaultFileHeader = bincode::deserialize(&header_bytes)
-                    .map_err(|e| Error::InvalidVaultFormat(format!("Invalid header: {}", e)))?;
-                (header, header_bytes)
-            }
-            _ => {
-                return Err(Error::InvalidVaultFormat(format!(
-                    "Unsupported vault version: {}",
-                    version
-                )));
-            }
-        };
+        let header: VaultFileHeader = bincode::deserialize(&header_bytes)
+            .map_err(|e| Error::InvalidVaultFormat(format!("Invalid header: {}", e)))?;
+        let aad_bytes = header_bytes;
 
         // Read encrypted payload length
         let mut payload_len_bytes = [0u8; 4];
@@ -675,106 +628,6 @@ mod tests {
         assert_eq!(mode, 0o600);
     }
 
-    #[test]
-    fn test_read_v1_header_compatibility() {
-        let dir = tempdir().unwrap();
-        let path = dir.path().join("legacy-v1.vault");
-
-        let vault = Vault::new("Legacy Vault");
-        let password = SecureString::from_str("legacy-password");
-        
-        // Create a V1-like payload manually (empty AAD)
-        let salt = generate_salt();
-        let params = Argon2Params::default();
-        let key = derive_key(&password, None, &salt, &params).unwrap();
-        let vault_bytes = bincode::serialize(&vault).unwrap();
-        let encrypted_payload = encrypt_with_method(
-            EncryptionMethod::Aes256Gcm,
-            &vault_bytes,
-            &key,
-            salt,
-            params,
-            &[],
-        ).unwrap();
-
-        let legacy_header = VaultFileHeaderV1 {
-            vault_id: vault.id,
-            vault_name: vault.name.clone(),
-            created_at: vault.created_at,
-            has_keyfile: false,
-            security_question_count: 0,
-            security_questions: vec![],
-        };
-        let header_bytes = bincode::serialize(&legacy_header).unwrap();
-        let payload_bytes = bincode::serialize(&encrypted_payload).unwrap();
-
-        let mut bytes = Vec::new();
-        bytes.extend_from_slice(VAULT_MAGIC);
-        bytes.extend_from_slice(&VAULT_VERSION_V1.to_le_bytes());
-        bytes.extend_from_slice(&(header_bytes.len() as u32).to_le_bytes());
-        bytes.extend_from_slice(&header_bytes);
-        bytes.extend_from_slice(&(payload_bytes.len() as u32).to_le_bytes());
-        bytes.extend_from_slice(&payload_bytes);
-        fs::write(&path, bytes).unwrap();
-
-        let loaded = VaultFile::read(&path).expect("v1 vault should read");
-        assert_eq!(loaded.header.vault_name, "Legacy Vault");
-        assert_eq!(loaded.header.encryption_method, EncryptionMethod::Aes256Gcm);
-        assert!(loaded.header.recovery_metadata.is_none());
-        assert!(loaded.header_bytes.is_empty());
-
-        let decrypted = loaded
-            .decrypt(&password, None)
-            .expect("v1 vault should decrypt");
-        assert_eq!(decrypted.name, "Legacy Vault");
-    }
-
-    #[test]
-    fn test_read_v2_header_compatibility() {
-        let dir = tempdir().unwrap();
-        let path = dir.path().join("legacy-v2.vault");
-
-        let vault = Vault::new("Legacy V2 Vault");
-        let password = SecureString::from_str("legacy-password");
-
-        // Create a V2-like file manually (no AAD)
-        let salt = generate_salt();
-        let params = Argon2Params::default();
-        let key = derive_key(&password, None, &salt, &params).unwrap();
-        let vault_bytes = bincode::serialize(&vault).unwrap();
-        // Encrypt with empty AAD (mimicking V2 behavior)
-        let encrypted_payload = encrypt_with_method(
-            EncryptionMethod::Aes256Gcm,
-            &vault_bytes,
-            &key,
-            salt,
-            params,
-            &[],
-        )
-        .unwrap();
-
-        let header = VaultFileHeader::from_vault(&vault, false, EncryptionMethod::Aes256Gcm, None);
-        let header_bytes = bincode::serialize(&header).unwrap();
-        let payload_bytes = bincode::serialize(&encrypted_payload).unwrap();
-
-        let mut bytes = Vec::new();
-        bytes.extend_from_slice(VAULT_MAGIC);
-        bytes.extend_from_slice(&VAULT_VERSION_V2.to_le_bytes());
-        bytes.extend_from_slice(&(header_bytes.len() as u32).to_le_bytes());
-        bytes.extend_from_slice(&header_bytes);
-        bytes.extend_from_slice(&(payload_bytes.len() as u32).to_le_bytes());
-        bytes.extend_from_slice(&payload_bytes);
-        fs::write(&path, bytes).unwrap();
-
-        let loaded = VaultFile::read(&path).expect("v2 vault should read");
-        assert_eq!(loaded.header.vault_name, "Legacy V2 Vault");
-        assert!(loaded.header_bytes.is_empty()); // V2 should have empty AAD bytes
-
-        let decrypted = loaded
-            .decrypt(&password, None)
-            .expect("v2 vault should decrypt");
-        assert_eq!(decrypted.name, "Legacy V2 Vault");
-    }
 
     #[test]
     fn test_tampered_header_fails_decryption() {

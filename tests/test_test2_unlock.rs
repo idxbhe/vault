@@ -3,56 +3,46 @@ use vault::crypto::SecureString;
 use vault::storage::VaultFile;
 
 #[test]
-fn test_unlock_test2_vault() {
+fn test_reject_legacy_test2_vault() {
     let vault_path = PathBuf::from("test2.vault");
+    if !vault_path.exists() { return; }
 
-    if !vault_path.exists() {
-        eprintln!("Skipping - test2.vault not found");
-        return;
-    }
-
-    let vault_file = VaultFile::read(&vault_path).expect("Should read test2.vault");
-
-    let password = SecureString::new("sudounlock".to_string());
-    let result = vault_file.decrypt_with_key(&password, None);
-
-    match result {
-        Ok((vault, _key)) => {
-            println!("✅ Successfully unlocked test2 vault");
-            println!("   Vault name: {}", vault.name);
-        }
-        Err(e) => {
-            panic!(
-                "❌ Failed to unlock test2 with password 'sudounlock': {:?}",
-                e
-            );
-        }
-    }
+    let result = VaultFile::read(&vault_path);
+    assert!(result.is_err());
 }
 
 #[test]
-fn test_unlock_test2_with_trimming() {
-    let vault_path = PathBuf::from("test2.vault");
+fn test_unlock_v4_test2_roundtrip() {
+    use vault::domain::Vault;
+    use tempfile::tempdir;
 
-    if !vault_path.exists() {
-        eprintln!("Skipping - test2.vault not found");
-        return;
-    }
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("v4_test2.vault");
+    
+    let vault = Vault::new("V4 Test2");
+    let password = SecureString::new("sudounlock".to_string());
+    
+    vault::storage::create_vault(&path, &vault, &password, None).expect("Create v4");
+    
+    let loaded = vault::storage::open_vault(&path, &password, None).expect("Open v4");
+    assert_eq!(loaded.name, "V4 Test2");
+}
 
-    // Test with spaces (should still work after trim)
-    let vault_file = VaultFile::read(&vault_path).expect("Should read test2.vault");
+#[test]
+fn test_unlock_v4_test2_with_trimming() {
+    use vault::domain::Vault;
+    use tempfile::tempdir;
+
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("v4_trim.vault");
+    
+    let vault = Vault::new("Trim Test");
+    let password = SecureString::new("sudounlock".to_string());
+    vault::storage::create_vault(&path, &vault, &password, None).unwrap();
 
     let password_with_space = "  sudounlock  ".trim().to_string();
-    let password = SecureString::new(password_with_space);
-    let result = vault_file.decrypt_with_key(&password, None);
+    let password_obj = SecureString::new(password_with_space);
+    let result = vault::storage::open_vault(&path, &password_obj, None);
 
-    match result {
-        Ok((vault, _key)) => {
-            println!("✅ Successfully unlocked test2 with trimmed password");
-            println!("   Vault name: {}", vault.name);
-        }
-        Err(e) => {
-            panic!("❌ Failed to unlock with trimmed password: {:?}", e);
-        }
-    }
+    assert!(result.is_ok());
 }

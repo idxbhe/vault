@@ -23,7 +23,7 @@ File vault menggunakan format binary custom yang terdiri dari:
 └──────────────────────────────────────────────────────────────┘
 ```
 
-**Note:** Sejak versi 3, **Header** digunakan sebagai **AAD** (Additional Authenticated Data) untuk enkripsi payload. Ini berarti modifikasi apapun pada header akan menyebabkan proses dekripsi gagal (tamper-evident).
+**Note:** Sejak versi 3, **Header** digunakan sebagai **AAD** (Additional Authenticated Data) untuk enkripsi payload. Versi 4 merombak KDF untuk lebih aman dengan menggunakan hashing SHA-256 pada keyfile alih-alih XOR.
 
 ## Field Details
 
@@ -39,11 +39,11 @@ Digunakan untuk identifikasi cepat tipe file.
 ### Version (2 bytes)
 
 ```
-Current: 0x0003 (version 3)
+Current: 0x0004 (version 4)
 Format: Little-endian u16
 ```
 
-Memungkinkan backward compatibility untuk versi masa depan.
+Digunakan untuk memastikan file ini kompatibel dengan aplikasi versi saat ini. Versi 4 memutus kompatibilitas dengan versi sebelumnya untuk alasan keamanan.
 
 ### Header Length (4 bytes)
 
@@ -205,9 +205,12 @@ pub struct Tag {
 ```
 1. Serialize VaultPayload to bincode bytes
 2. Generate random 32-byte salt (if new) 
-3. Generate random 12-byte nonce
-4. Derive 256-bit key: Argon2id(password, salt)
-5. Serialize VaultHeader to bytes (AAD)
+3. Derive 256-bit key:
+   a. Jika ada keyfile: hash_kf = SHA256(keyfile)
+   b. Gabungkan: material = SHA256(password || hash_kf)
+   c. Derive: Argon2id(material, salt)
+4. Serialize VaultHeader to bytes (AAD)
+5. Generate random 12-byte nonce
 6. Encrypt: AEAD(plaintext, key, nonce, AAD)
 7. Build file structure and write
 ```
@@ -317,11 +320,12 @@ pub fn read_vault(path: &Path, password: &str) -> Result<Vault> {
 | 1 | Initial release |
 | 2 | Added encryption method selection & recovery metadata |
 | 3 | Implemented AEAD with Header-as-AAD (Tamper-evident) |
+| 4 | Security Overhaul: Removed XOR KDF, transitioned to SHA-256 for keyfile integration, and dropped all backward compatibility. |
 
 ## Compatibility
 
-- **Forward**: Old versions cannot read new formats (v3)
-- **Backward**: New versions can read old formats (v1, v2) with empty AAD
+- **Forward**: Old aplikasi tidak dapat membaca format baru (v4).
+- **Backward**: Tidak didukung. Aplikasi ini hanya mendukung format v4 terbaru demi alasan keamanan.
 
 ## Security Considerations
 

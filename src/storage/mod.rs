@@ -6,4 +6,4 @@ pub mod vault_file;
 
 pub use config::{AppConfig, IconColorChoice, ThemeChoice};
 pub use registry::{VaultRegistry, VaultRegistryEntry};
-pub use vault_file::{VaultFile, VaultFileHeader};
+pub use vault_file::{VaultFile, VaultFileHeader, create_vault, open_vault, save_vault};

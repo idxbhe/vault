@@ -3,6 +3,7 @@
 use argon2::{Algorithm, Argon2, Params, Version};
 use rand::rngs::OsRng;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use zeroize::Zeroize;
 
 use crate::crypto::SecureString;
@@ -73,19 +74,23 @@ pub fn derive_key(
     salt: &[u8; 32],
     params: &Argon2Params,
 ) -> Result<[u8; 32]> {
-    // Combine password and keyfile material
-    let mut key_material = password.as_bytes().to_vec();
+    // 1. If keyfile is provided, hash it with SHA-256
+    let keyfile_hash = if let Some(kf_data) = keyfile {
+        let mut hasher = Sha256::new();
+        hasher.update(kf_data);
+        let result = hasher.finalize().to_vec();
+        Some(result)
+    } else {
+        None
+    };
 
-    if let Some(kf_data) = keyfile {
-        // XOR keyfile with password, extending if keyfile is longer
-        for (i, &kf_byte) in kf_data.iter().enumerate() {
-            if i < key_material.len() {
-                key_material[i] ^= kf_byte;
-            } else {
-                key_material.push(kf_byte);
-            }
-        }
+    // 2. Combine password and keyfile hash: SHA256(password || keyfile_hash)
+    let mut hasher = Sha256::new();
+    hasher.update(password.as_bytes());
+    if let Some(ref kf_hash) = keyfile_hash {
+        hasher.update(kf_hash);
     }
+    let mut combined_material = hasher.finalize().to_vec();
 
     // Create Argon2id hasher
     let argon2 = Argon2::new(
@@ -97,11 +102,14 @@ pub fn derive_key(
     // Derive the key using raw hash (not PHC string format)
     let mut output_key = [0u8; 32];
     argon2
-        .hash_password_into(&key_material, salt, &mut output_key)
+        .hash_password_into(&combined_material, salt, &mut output_key)
         .map_err(|e| Error::KeyDerivation(e.to_string()))?;
 
-    // Securely clear the key material
-    key_material.zeroize();
+    // Securely clear sensitive materials
+    combined_material.zeroize();
+    if let Some(mut kf_hash) = keyfile_hash {
+        kf_hash.zeroize();
+    }
 
     Ok(output_key)
 }
