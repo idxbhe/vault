@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::history::HistoryEntry;
+use crate::crypto::SecureString;
 
 /// A single entry in the vault (password, seed phrase, note, etc.)
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -55,7 +56,7 @@ impl Item {
             title,
             ItemKind::Generic,
             ItemContent::Generic {
-                value: value.into(),
+                value: SecureString::new(value.into()),
             },
         )
     }
@@ -66,7 +67,7 @@ impl Item {
             title,
             ItemKind::CryptoSeed,
             ItemContent::CryptoSeed {
-                seed_phrase: seed_phrase.into(),
+                seed_phrase: SecureString::new(seed_phrase.into()),
                 derivation_path: None,
                 network: None,
             },
@@ -80,7 +81,7 @@ impl Item {
             ItemKind::Password,
             ItemContent::Password {
                 username: None,
-                password: password.into(),
+                password: SecureString::new(password.into()),
                 url: None,
                 totp_secret: None,
             },
@@ -93,7 +94,7 @@ impl Item {
             title,
             ItemKind::SecureNote,
             ItemContent::SecureNote {
-                content: content.into(),
+                content: SecureString::new(content.into()),
             },
         )
     }
@@ -104,7 +105,7 @@ impl Item {
             title,
             ItemKind::ApiKey,
             ItemContent::ApiKey {
-                key: key.into(),
+                key: SecureString::new(key.into()),
                 service: None,
                 expires_at: None,
             },
@@ -148,7 +149,7 @@ impl Item {
             ItemContent::Generic { value } => {
                 fields.push((
                     "Value".to_string(),
-                    value.to_string(),
+                    value.as_str().to_string(),
                     true,
                     Some(FormField::Content),
                 ));
@@ -160,7 +161,7 @@ impl Item {
             } => {
                 fields.push((
                     "Seed Phrase".to_string(),
-                    seed_phrase.to_string(),
+                    seed_phrase.as_str().to_string(),
                     true,
                     Some(FormField::SeedPhrase),
                 ));
@@ -191,7 +192,7 @@ impl Item {
                 ));
                 fields.push((
                     "Password".to_string(),
-                    password.to_string(),
+                    password.as_str().to_string(),
                     true,
                     Some(FormField::Password),
                 ));
@@ -202,7 +203,7 @@ impl Item {
                     Some(FormField::Url),
                 ));
                 if let Some(totp) = totp_secret {
-                    let totp_val = generate_totp_code(totp);
+                    let totp_val = generate_totp_code(totp.as_str());
                     fields.push((
                         "TOTP Code".to_string(),
                         totp_val,
@@ -211,7 +212,7 @@ impl Item {
                     ));
                     fields.push((
                         "TOTP Secret".to_string(),
-                        totp.to_string(),
+                        totp.as_str().to_string(),
                         true,
                         Some(FormField::TotpSecret),
                     ));
@@ -220,7 +221,7 @@ impl Item {
             ItemContent::SecureNote { content } => {
                 fields.push((
                     "Content".to_string(),
-                    content.to_string(),
+                    content.as_str().to_string(),
                     true,
                     Some(FormField::Content),
                 ));
@@ -238,7 +239,7 @@ impl Item {
                 ));
                 fields.push((
                     "API Key".to_string(),
-                    key.to_string(),
+                    key.as_str().to_string(),
                     true,
                     Some(FormField::ApiKey),
                 ));
@@ -266,8 +267,8 @@ impl Item {
                     false,
                     Some(FormField::AccountName),
                 ));
-
-                let totp_val = generate_totp_code(secret);
+ 
+                let totp_val = generate_totp_code(secret.as_str());
                 fields.push((
                     "TOTP Code".to_string(),
                     totp_val,
@@ -276,7 +277,7 @@ impl Item {
                 )); // Map TOTP Code to TotpSecret field to edit the secret
                 fields.push((
                     "Secret".to_string(),
-                    secret.to_string(),
+                    secret.as_str().to_string(),
                     true,
                     Some(FormField::TotpSecret),
                 ));
@@ -287,7 +288,7 @@ impl Item {
                 for field in custom_fields {
                     fields.push((
                         field.key.clone(),
-                        field.value.clone(),
+                        field.value.as_str().to_string(),
                         field.field_type == CustomFieldType::Secret,
                         Some(FormField::CustomFields),
                     ));
@@ -301,17 +302,17 @@ impl Item {
     /// Get the primary sensitive content for copying
     pub fn get_copyable_content(&self) -> Option<String> {
         match &self.content {
-            ItemContent::Generic { value } => Some(value.clone()),
-            ItemContent::CryptoSeed { seed_phrase, .. } => Some(seed_phrase.clone()),
-            ItemContent::Password { password, .. } => Some(password.clone()),
-            ItemContent::SecureNote { content } => Some(content.clone()),
-            ItemContent::ApiKey { key, .. } => Some(key.clone()),
-            ItemContent::Totp { secret, .. } => Some(generate_totp_code(secret)),
+            ItemContent::Generic { value } => Some(value.as_str().to_string()),
+            ItemContent::CryptoSeed { seed_phrase, .. } => Some(seed_phrase.as_str().to_string()),
+            ItemContent::Password { password, .. } => Some(password.as_str().to_string()),
+            ItemContent::SecureNote { content } => Some(content.as_str().to_string()),
+            ItemContent::ApiKey { key, .. } => Some(key.as_str().to_string()),
+            ItemContent::Totp { secret, .. } => Some(generate_totp_code(secret.as_str())),
             ItemContent::Custom { fields } => fields
                 .iter()
                 .find(|f| f.field_type == CustomFieldType::Secret)
                 .or_else(|| fields.first())
-                .map(|f| f.value.clone()),
+                .map(|f| f.value.as_str().to_string()),
         }
     }
 }
@@ -379,31 +380,31 @@ impl ItemKind {
     pub fn default_content(&self) -> ItemContent {
         match self {
             ItemKind::Generic => ItemContent::Generic {
-                value: String::new(),
+                value: SecureString::empty(),
             },
             ItemKind::CryptoSeed => ItemContent::CryptoSeed {
-                seed_phrase: String::new(),
+                seed_phrase: SecureString::empty(),
                 derivation_path: None,
                 network: None,
             },
             ItemKind::Password => ItemContent::Password {
                 username: None,
-                password: String::new(),
+                password: SecureString::empty(),
                 url: None,
                 totp_secret: None,
             },
             ItemKind::SecureNote => ItemContent::SecureNote {
-                content: String::new(),
+                content: SecureString::empty(),
             },
             ItemKind::ApiKey => ItemContent::ApiKey {
-                key: String::new(),
+                key: SecureString::empty(),
                 service: None,
                 expires_at: None,
             },
             ItemKind::Totp => ItemContent::Totp {
                 issuer: None,
                 account_name: String::new(),
-                secret: String::new(),
+                secret: SecureString::empty(),
             },
             ItemKind::Custom => ItemContent::Custom { fields: vec![] },
         }
@@ -435,7 +436,7 @@ impl CustomFieldType {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CustomField {
     pub key: String,
-    pub value: String,
+    pub value: SecureString,
     pub field_type: CustomFieldType,
 }
 
@@ -454,40 +455,40 @@ fn generate_totp_code(secret: &str) -> String {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ItemContent {
     /// Generic: simple value
-    Generic { value: String },
-
+    Generic { value: SecureString },
+ 
     /// Crypto seed phrase with optional metadata
     CryptoSeed {
-        seed_phrase: String,
+        seed_phrase: SecureString,
         derivation_path: Option<String>,
         network: Option<String>,
     },
-
+ 
     /// Password entry with login details
     Password {
         username: Option<String>,
-        password: String,
+        password: SecureString,
         url: Option<String>,
-        totp_secret: Option<String>,
+        totp_secret: Option<SecureString>,
     },
-
+ 
     /// Secure note (potentially markdown)
-    SecureNote { content: String },
-
+    SecureNote { content: SecureString },
+ 
     /// API key or token
     ApiKey {
-        key: String,
+        key: SecureString,
         service: Option<String>,
         expires_at: Option<DateTime<Utc>>,
     },
-
+ 
     /// Standalone TOTP
     Totp {
         issuer: Option<String>,
         account_name: String,
-        secret: String,
+        secret: SecureString,
     },
-
+ 
     /// Dynamic key/value fields with per-field type
     Custom { fields: Vec<CustomField> },
 }
@@ -495,7 +496,7 @@ pub enum ItemContent {
 impl Default for ItemContent {
     fn default() -> Self {
         ItemContent::Generic {
-            value: String::new(),
+            value: SecureString::empty(),
         }
     }
 }
@@ -548,17 +549,17 @@ mod tests {
             vec![
                 CustomField {
                     key: "host".to_string(),
-                    value: "example.com".to_string(),
+                    value: SecureString::from("example.com"),
                     field_type: CustomFieldType::Url,
                 },
                 CustomField {
                     key: "token".to_string(),
-                    value: "secret-token".to_string(),
+                    value: SecureString::from("secret-token"),
                     field_type: CustomFieldType::Secret,
                 },
             ],
         );
-
+ 
         assert_eq!(item.kind, ItemKind::Custom);
         assert_eq!(item.get_copyable_content(), Some("secret-token".to_string()));
     }

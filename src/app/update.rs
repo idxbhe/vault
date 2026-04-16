@@ -3351,16 +3351,16 @@ fn create_item_from_form(
                 .unwrap_or("")
                 .to_string();
             if form.kind == crate::domain::ItemKind::SecureNote {
-                ItemContent::SecureNote { content: value }
+                ItemContent::SecureNote { content: value.into() }
             } else {
-                ItemContent::Generic { value }
+                ItemContent::Generic { value: value.into() }
             }
         }
         crate::domain::ItemKind::CryptoSeed => ItemContent::CryptoSeed {
             seed_phrase: form
                 .get_value(&FormField::SeedPhrase)
                 .unwrap_or("")
-                .to_string(),
+                .into(),
             derivation_path: form
                 .get_value(&FormField::DerivationPath)
                 .filter(|s| !s.is_empty())
@@ -3378,7 +3378,7 @@ fn create_item_from_form(
             password: form
                 .get_value(&FormField::Password)
                 .unwrap_or("")
-                .to_string(),
+                .into(),
             url: form
                 .get_value(&FormField::Url)
                 .filter(|s| !s.is_empty())
@@ -3386,10 +3386,10 @@ fn create_item_from_form(
             totp_secret: form
                 .get_value(&FormField::TotpSecret)
                 .filter(|s| !s.is_empty())
-                .map(|s| s.to_string()),
+                .map(|s| s.into()),
         },
         crate::domain::ItemKind::ApiKey => ItemContent::ApiKey {
-            key: form.get_value(&FormField::ApiKey).unwrap_or("").to_string(),
+            key: form.get_value(&FormField::ApiKey).unwrap_or("").into(),
             service: form
                 .get_value(&FormField::Service)
                 .filter(|s| !s.is_empty())
@@ -3413,7 +3413,7 @@ fn create_item_from_form(
             secret: form
                 .get_value(&FormField::TotpSecret)
                 .unwrap_or("")
-                .to_string(),
+                .into(),
         },
     };
 
@@ -3447,16 +3447,16 @@ fn create_updates_from_form(
                 .unwrap_or("")
                 .to_string();
             if form.kind == crate::domain::ItemKind::SecureNote {
-                Some(ItemContent::SecureNote { content: value })
+                Some(ItemContent::SecureNote { content: value.into() })
             } else {
-                Some(ItemContent::Generic { value })
+                Some(ItemContent::Generic { value: value.into() })
             }
         }
         crate::domain::ItemKind::CryptoSeed => Some(ItemContent::CryptoSeed {
             seed_phrase: form
                 .get_value(&FormField::SeedPhrase)
                 .unwrap_or("")
-                .to_string(),
+                .into(),
             derivation_path: form
                 .get_value(&FormField::DerivationPath)
                 .filter(|s| !s.is_empty())
@@ -3474,7 +3474,7 @@ fn create_updates_from_form(
             password: form
                 .get_value(&FormField::Password)
                 .unwrap_or("")
-                .to_string(),
+                .into(),
             url: form
                 .get_value(&FormField::Url)
                 .filter(|s| !s.is_empty())
@@ -3482,10 +3482,10 @@ fn create_updates_from_form(
             totp_secret: form
                 .get_value(&FormField::TotpSecret)
                 .filter(|s| !s.is_empty())
-                .map(|s| s.to_string()),
+                .map(|s| s.into()),
         }),
         crate::domain::ItemKind::ApiKey => Some(ItemContent::ApiKey {
-            key: form.get_value(&FormField::ApiKey).unwrap_or("").to_string(),
+            key: form.get_value(&FormField::ApiKey).unwrap_or("").into(),
             service: form
                 .get_value(&FormField::Service)
                 .filter(|s| !s.is_empty())
@@ -3509,7 +3509,7 @@ fn create_updates_from_form(
             secret: form
                 .get_value(&FormField::TotpSecret)
                 .unwrap_or("")
-                .to_string(),
+                .into(),
         }),
     };
 
@@ -3561,7 +3561,7 @@ fn parse_single_custom_field(
 
     Ok(crate::domain::CustomField {
         key: key.to_string(),
-        value: raw_value.trim().to_string(),
+        value: raw_value.trim().into(),
         field_type,
     })
 }
@@ -3921,7 +3921,8 @@ mod tests {
         assert_eq!(parsed.len(), 3);
         assert_eq!(parsed[0].key, "username");
         assert_eq!(parsed[1].field_type, crate::domain::CustomFieldType::Secret);
-        assert_eq!(parsed[2].value, "443");
+        assert_eq!(parsed[1].value, SecureString::from("abc123"));
+        assert_eq!(parsed[2].value, SecureString::from("443"));
     }
 
     #[test]
@@ -3953,6 +3954,7 @@ mod tests {
         match item.content {
             crate::domain::ItemContent::Custom { fields } => {
                 assert_eq!(fields.len(), 2);
+                assert_eq!(fields[1].value, SecureString::from("xyz"));
                 assert_eq!(fields[1].field_type, crate::domain::CustomFieldType::Secret);
             }
             other => panic!("expected custom content, got {:?}", other),

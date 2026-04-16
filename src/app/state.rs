@@ -423,7 +423,7 @@ impl FloatingWindow {
                     .iter()
                     .position(|f| *f == crate::ui::widgets::FormField::Content)
                 {
-                    form.values[idx] = value.clone();
+                    form.values[idx] = value.as_str().to_string();
                 }
             }
             ItemContent::CryptoSeed {
@@ -436,7 +436,7 @@ impl FloatingWindow {
                     .iter()
                     .position(|f| *f == crate::ui::widgets::FormField::SeedPhrase)
                 {
-                    form.values[idx] = seed_phrase.clone();
+                    form.values[idx] = seed_phrase.as_str().to_string();
                 }
                 if let Some(idx) = form
                     .fields
@@ -475,7 +475,7 @@ impl FloatingWindow {
                     .iter()
                     .position(|f| *f == crate::ui::widgets::FormField::Password)
                 {
-                    form.values[idx] = password.clone();
+                    form.values[idx] = password.as_str().to_string();
                 }
                 if let Some(idx) = form
                     .fields
@@ -491,7 +491,7 @@ impl FloatingWindow {
                     .position(|f| *f == crate::ui::widgets::FormField::TotpSecret)
                     && let Some(t) = totp_secret
                 {
-                    form.values[idx] = t.clone();
+                    form.values[idx] = t.as_str().to_string();
                 }
             }
             ItemContent::SecureNote { content } => {
@@ -500,7 +500,7 @@ impl FloatingWindow {
                     .iter()
                     .position(|f| *f == crate::ui::widgets::FormField::Content)
                 {
-                    form.values[idx] = content.clone();
+                    form.values[idx] = content.as_str().to_string();
                 }
             }
             ItemContent::ApiKey { key, service, .. } => {
@@ -509,7 +509,7 @@ impl FloatingWindow {
                     .iter()
                     .position(|f| *f == crate::ui::widgets::FormField::ApiKey)
                 {
-                    form.values[idx] = key.clone();
+                    form.values[idx] = key.as_str().to_string();
                 }
                 if let Some(idx) = form
                     .fields
@@ -545,7 +545,7 @@ impl FloatingWindow {
                     .iter()
                     .position(|f| *f == crate::ui::widgets::FormField::TotpSecret)
                 {
-                    form.values[idx] = secret.clone();
+                    form.values[idx] = secret.as_str().to_string();
                 }
             }
             ItemContent::Custom { fields } => {
@@ -584,7 +584,7 @@ fn format_custom_fields_for_form(fields: &[CustomField]) -> String {
                 "{}:{}={}",
                 field.field_type.as_str(),
                 field.key,
-                field.value
+                field.value.as_str()
             )
         })
         .collect::<Vec<_>>()
@@ -897,7 +897,7 @@ mod tests {
             "Test Item",
             crate::domain::ItemKind::Generic,
             crate::domain::ItemContent::Generic {
-                value: "test".to_string(),
+                value: "test".into(),
             },
         );
         let snapshot = ItemSnapshot::from_item(&item);

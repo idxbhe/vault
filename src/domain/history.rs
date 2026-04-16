@@ -223,7 +223,7 @@ mod tests {
         let snapshot = ItemSnapshot::new(
             "Test",
             ItemContent::Generic {
-                value: "value".to_string(),
+                value: "value".into(),
             },
             None,
             vec![],
@@ -243,7 +243,7 @@ mod tests {
         let snapshot = ItemSnapshot::new(
             "Test",
             ItemContent::Generic {
-                value: "old".to_string(),
+                value: "old".into(),
             },
             None,
             vec![],
@@ -270,7 +270,7 @@ mod tests {
             let snapshot = ItemSnapshot::new(
                 format!("Item {}", i),
                 ItemContent::Generic {
-                    value: "v".to_string(),
+                    value: "v".into(),
                 },
                 None,
                 vec![],

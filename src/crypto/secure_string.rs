@@ -1,6 +1,7 @@
 //! Secure string wrapper that zeros memory on drop
 
 use std::fmt;
+use serde::{Deserialize, Serialize, Serializer, Deserializer};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// A string type that securely zeros its memory when dropped.
@@ -105,6 +106,25 @@ impl PartialEq for SecureString {
 
 impl Eq for SecureString {}
 
+impl Serialize for SecureString {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        self.inner.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for SecureString {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Ok(SecureString::new(s))
+    }
+}
+
 /// Secure bytes wrapper that zeros memory on drop
 #[derive(Clone, Zeroize, ZeroizeOnDrop)]
 pub struct SecureBytes {
@@ -143,6 +163,25 @@ impl SecureBytes {
 impl From<Vec<u8>> for SecureBytes {
     fn from(bytes: Vec<u8>) -> Self {
         Self::new(bytes)
+    }
+}
+
+impl Serialize for SecureBytes {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        self.inner.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for SecureBytes {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let b = Vec::<u8>::deserialize(deserializer)?;
+        Ok(SecureBytes::new(b))
     }
 }
 
@@ -196,5 +235,25 @@ mod tests {
         let bytes = SecureBytes::new(vec![1, 2, 3, 4]);
         assert_eq!(bytes.as_slice(), &[1, 2, 3, 4]);
         assert_eq!(bytes.len(), 4);
+    }
+
+    #[test]
+    fn test_secure_string_serde_compatibility() {
+        let s = SecureString::from_str("my-secret");
+        let serialized = serde_json::to_string(&s).unwrap();
+        assert_eq!(serialized, "\"my-secret\"");
+
+        let deserialized: SecureString = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(deserialized.as_str(), "my-secret");
+    }
+
+    #[test]
+    fn test_secure_bytes_serde_compatibility() {
+        let b = SecureBytes::new(vec![1, 2, 3]);
+        let serialized = serde_json::to_string(&b).unwrap();
+        assert_eq!(serialized, "[1,2,3]");
+
+        let deserialized: SecureBytes = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(deserialized.as_slice(), &[1, 2, 3]);
     }
 }
