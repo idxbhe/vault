@@ -5,3 +5,4 @@ allow_dirty = false
 # Konfigurasi spesifik paket (nama paket diambil dari Cargo.toml)
 [[package]]
 name = "vault"
+git_only = true

@@ -25,7 +25,10 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install release-plz
-        run: curl -fsSL https://github.com/MarcoIeni/release-plz/releases/latest/download/release-plz-x86_64-unknown-linux-gnu.tar.gz | tar -xz -C /usr/local/bin
+        run: |
+          mkdir -p ~/.local/bin
+          curl -fsSL https://github.com/MarcoIeni/release-plz/releases/latest/download/release-plz-x86_64-unknown-linux-gnu.tar.gz | tar -xz -C ~/.local/bin
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Update version and changelog
         id: update
@@ -34,7 +37,8 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
           # Run release-plz update to modify Cargo.toml and CHANGELOG.md
-          release-plz update
+          # Added --verbose for better debugging
+          release-plz update --verbose
           
           # Check if anything changed
           if [ -n "$(git status --porcelain)" ]; then
@@ -49,4 +53,5 @@ jobs:
             echo "bumped=true" >> $GITHUB_OUTPUT
           else
             echo "bumped=false" >> $GITHUB_OUTPUT
+            echo "No changes detected by release-plz"
           fi
