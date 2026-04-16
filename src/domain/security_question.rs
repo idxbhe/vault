@@ -160,8 +160,8 @@ impl RecoveryMetadata {
 
             let key_material = Self::compose_key_material(&ordered_answers[..required_correct]);
             let params = Argon2Params {
-                memory_kib: 16384,
-                iterations: 2,
+                memory_kib: 65536,
+                iterations: 3,
                 parallelism: 2,
             };
             let salt = generate_salt();
@@ -215,7 +215,7 @@ impl RecoveryMetadata {
     fn compose_key_material(answers: &[SecureString]) -> SecureString {
         let joined = answers
             .iter()
-            .map(|a| a.as_str())
+            .map(|a| a.as_str().trim().to_lowercase())
             .collect::<Vec<_>>()
             .join("\n");
         SecureString::new(joined)
@@ -283,10 +283,11 @@ mod tests {
 
     #[test]
     fn test_security_question_verify() {
-        let answer = SecureString::from_str("fluffy");
+        let answer = SecureString::from_str("Fluffy");
         let question = SecurityQuestion::new("What is your pet's name?", &answer).unwrap();
 
         assert!(question.verify(&SecureString::from_str("fluffy")).unwrap());
+        assert!(question.verify(&SecureString::from_str("  FLUFFY  ")).unwrap());
         assert!(!question.verify(&SecureString::from_str("spot")).unwrap());
     }
 

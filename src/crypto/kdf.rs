@@ -130,12 +130,16 @@ pub fn derive_key_with_new_salt(
 pub fn hash_security_answer(answer: &SecureString) -> Result<(Vec<u8>, [u8; 32])> {
     let salt = generate_salt();
     let params = Argon2Params {
-        memory_kib: 16384, // 16 MiB - faster for security questions
-        iterations: 2,
+        memory_kib: 65536, // 64 MiB - hardened for security questions
+        iterations: 3,
         parallelism: 2,
     };
 
-    let key = derive_key(answer, None, &salt, &params)?;
+    // Normalize: trim + lowercase
+    let normalized = answer.as_str().trim().to_lowercase();
+    let normalized_ss = SecureString::from(normalized);
+
+    let key = derive_key(&normalized_ss, None, &salt, &params)?;
     Ok((key.to_vec(), salt))
 }
 
@@ -146,12 +150,16 @@ pub fn verify_security_answer(
     salt: &[u8; 32],
 ) -> Result<bool> {
     let params = Argon2Params {
-        memory_kib: 16384,
-        iterations: 2,
+        memory_kib: 65536,
+        iterations: 3,
         parallelism: 2,
     };
 
-    let derived = derive_key(answer, None, salt, &params)?;
+    // Normalize: trim + lowercase
+    let normalized = answer.as_str().trim().to_lowercase();
+    let normalized_ss = SecureString::from(normalized);
+
+    let derived = derive_key(&normalized_ss, None, salt, &params)?;
 
     // Constant-time comparison
     Ok(constant_time_compare(&derived, stored_hash))
@@ -233,11 +241,28 @@ mod tests {
 
     #[test]
     fn test_security_answer_hash_verify() {
-        let answer = SecureString::from_str("my pet name");
+        let answer = SecureString::from_str("My Pet Name");
         let (hash, salt) = hash_security_answer(&answer).unwrap();
 
-        // Correct answer should verify
+        // Correct answer should verify (with same case/trim)
         assert!(verify_security_answer(&answer, &hash, &salt).unwrap());
+
+        // Correct answer with different case and spaces should still verify
+        let variations = vec![
+            "my pet name",
+            "MY PET NAME",
+            "  My Pet Name  ",
+            "my pet name  ",
+        ];
+
+        for var in variations {
+            let var_ss = SecureString::from_str(var);
+            assert!(
+                verify_security_answer(&var_ss, &hash, &salt).unwrap(),
+                "Should match for variation: '{}'",
+                var
+            );
+        }
 
         // Wrong answer should not verify
         let wrong = SecureString::from_str("wrong answer");
