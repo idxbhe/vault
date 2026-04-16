@@ -9,7 +9,6 @@ use aes_gcm::{
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 
-use crate::crypto::Argon2Params;
 use crate::utils::error::{Error, Result};
 
 /// Supported vault encryption methods.
@@ -47,18 +46,18 @@ impl EncryptionMethod {
     /// Security level label for UI.
     pub fn security_level(&self) -> &'static str {
         match self {
-            EncryptionMethod::Aes256Gcm => "High",
-            EncryptionMethod::ChaCha20Poly1305 => "High",
-            EncryptionMethod::Aes256GcmSiv => "High (Misuse Resistant)",
+            EncryptionMethod::Aes256Gcm => "Tinggi",
+            EncryptionMethod::ChaCha20Poly1305 => "Tinggi",
+            EncryptionMethod::Aes256GcmSiv => "Tinggi (Tahan Penyalahgunaan)",
         }
     }
 
     /// Decryption speed label for UI.
     pub fn decryption_speed(&self) -> &'static str {
         match self {
-            EncryptionMethod::Aes256Gcm => "Slow Decryption",
-            EncryptionMethod::ChaCha20Poly1305 => "Fast Decryption",
-            EncryptionMethod::Aes256GcmSiv => "Slow Decryption",
+            EncryptionMethod::Aes256Gcm => "Sangat Cepat (Percepatan Hardware)",
+            EncryptionMethod::ChaCha20Poly1305 => "Cepat (Optimasi Software)",
+            EncryptionMethod::Aes256GcmSiv => "Sangat Cepat (Percepatan Hardware)",
         }
     }
 
@@ -82,8 +81,6 @@ pub struct EncryptedPayload {
     pub nonce: [u8; 12],
     /// 32-byte salt used for key derivation
     pub salt: [u8; 32],
-    /// Argon2 parameters used for key derivation
-    pub argon2_params: Argon2Params,
 }
 
 impl EncryptedPayload {
@@ -92,13 +89,11 @@ impl EncryptedPayload {
         ciphertext: Vec<u8>,
         nonce: [u8; 12],
         salt: [u8; 32],
-        argon2_params: Argon2Params,
     ) -> Self {
         Self {
             ciphertext,
             nonce,
             salt,
-            argon2_params,
         }
     }
 }
@@ -124,7 +119,6 @@ pub fn encrypt(
     plaintext: &[u8],
     key: &[u8; 32],
     salt: [u8; 32],
-    argon2_params: Argon2Params,
     aad: &[u8],
 ) -> Result<EncryptedPayload> {
     let cipher = Aes256Gcm::new_from_slice(key).map_err(|e| Error::Encryption(e.to_string()))?;
@@ -145,7 +139,6 @@ pub fn encrypt(
         ciphertext,
         nonce_bytes,
         salt,
-        argon2_params,
     ))
 }
 
@@ -179,7 +172,6 @@ pub fn encrypt_aes_gcm_siv(
     plaintext: &[u8],
     key: &[u8; 32],
     salt: [u8; 32],
-    argon2_params: Argon2Params,
     aad: &[u8],
 ) -> Result<EncryptedPayload> {
     let cipher = Aes256GcmSiv::new_from_slice(key).map_err(|e| Error::Encryption(e.to_string()))?;
@@ -200,7 +192,6 @@ pub fn encrypt_aes_gcm_siv(
         ciphertext,
         nonce_bytes,
         salt,
-        argon2_params,
     ))
 }
 
@@ -225,7 +216,6 @@ pub fn encrypt_chacha(
     plaintext: &[u8],
     key: &[u8; 32],
     salt: [u8; 32],
-    argon2_params: Argon2Params,
     aad: &[u8],
 ) -> Result<EncryptedPayload> {
     let cipher = ChaCha20Poly1305::new_from_slice(key).map_err(|e| Error::Encryption(e.to_string()))?;
@@ -246,7 +236,6 @@ pub fn encrypt_chacha(
         ciphertext,
         nonce_bytes,
         salt,
-        argon2_params,
     ))
 }
 
@@ -271,13 +260,12 @@ pub fn encrypt_with_method(
     plaintext: &[u8],
     key: &[u8; 32],
     salt: [u8; 32],
-    argon2_params: Argon2Params,
     aad: &[u8],
 ) -> Result<EncryptedPayload> {
     match method {
-        EncryptionMethod::Aes256Gcm => encrypt(plaintext, key, salt, argon2_params, aad),
-        EncryptionMethod::ChaCha20Poly1305 => encrypt_chacha(plaintext, key, salt, argon2_params, aad),
-        EncryptionMethod::Aes256GcmSiv => encrypt_aes_gcm_siv(plaintext, key, salt, argon2_params, aad),
+        EncryptionMethod::Aes256Gcm => encrypt(plaintext, key, salt, aad),
+        EncryptionMethod::ChaCha20Poly1305 => encrypt_chacha(plaintext, key, salt, aad),
+        EncryptionMethod::Aes256GcmSiv => encrypt_aes_gcm_siv(plaintext, key, salt, aad),
     }
 }
 
@@ -300,12 +288,11 @@ pub fn encrypt_value<T: Serialize>(
     value: &T,
     key: &[u8; 32],
     salt: [u8; 32],
-    argon2_params: Argon2Params,
     aad: &[u8],
 ) -> Result<EncryptedPayload> {
     let plaintext = bincode::serialize(value)
         .map_err(|e| Error::Encryption(format!("Serialization failed: {}", e)))?;
-    encrypt(&plaintext, key, salt, argon2_params, aad)
+    encrypt(&plaintext, key, salt, aad)
 }
 
 /// Decrypt and deserialize a value
@@ -326,11 +313,10 @@ mod tests {
     fn test_encrypt_decrypt_roundtrip() {
         let key = [42u8; 32];
         let salt = [1u8; 32];
-        let params = Argon2Params::default();
         let plaintext = b"Hello, Vault!";
         let aad = b"header data";
 
-        let encrypted = encrypt(plaintext, &key, salt, params, aad).unwrap();
+        let encrypted = encrypt(plaintext, &key, salt, aad).unwrap();
         let decrypted = decrypt(&encrypted, &key, aad).unwrap();
 
         assert_eq!(decrypted, plaintext);
@@ -340,12 +326,11 @@ mod tests {
     fn test_encrypt_produces_different_ciphertext() {
         let key = [42u8; 32];
         let salt = [1u8; 32];
-        let params = Argon2Params::default();
         let plaintext = b"Same plaintext";
         let aad = b"aad";
 
-        let encrypted1 = encrypt(plaintext, &key, salt, params, aad).unwrap();
-        let encrypted2 = encrypt(plaintext, &key, salt, params, aad).unwrap();
+        let encrypted1 = encrypt(plaintext, &key, salt, aad).unwrap();
+        let encrypted2 = encrypt(plaintext, &key, salt, aad).unwrap();
 
         // Different nonces should produce different ciphertexts
         assert_ne!(encrypted1.ciphertext, encrypted2.ciphertext);
@@ -357,11 +342,10 @@ mod tests {
         let key = [42u8; 32];
         let wrong_key = [43u8; 32];
         let salt = [1u8; 32];
-        let params = Argon2Params::default();
         let plaintext = b"Secret data";
         let aad = b"header";
 
-        let encrypted = encrypt(plaintext, &key, salt, params, aad).unwrap();
+        let encrypted = encrypt(plaintext, &key, salt, aad).unwrap();
         let result = decrypt(&encrypted, &wrong_key, aad);
 
         assert!(result.is_err());
@@ -371,11 +355,10 @@ mod tests {
     fn test_decrypt_tampered_ciphertext_fails() {
         let key = [42u8; 32];
         let salt = [1u8; 32];
-        let params = Argon2Params::default();
         let plaintext = b"Secret data";
         let aad = b"header";
 
-        let mut encrypted = encrypt(plaintext, &key, salt, params, aad).unwrap();
+        let mut encrypted = encrypt(plaintext, &key, salt, aad).unwrap();
 
         // Tamper with the ciphertext
         if let Some(byte) = encrypted.ciphertext.first_mut() {
@@ -398,7 +381,6 @@ mod tests {
 
         let key = [42u8; 32];
         let salt = [1u8; 32];
-        let params = Argon2Params::default();
 
         let original = TestData {
             name: "test".to_string(),
@@ -406,7 +388,7 @@ mod tests {
         };
 
         let aad = b"some aad";
-        let encrypted = encrypt_value(&original, &key, salt, params, aad).unwrap();
+        let encrypted = encrypt_value(&original, &key, salt, aad).unwrap();
         let decrypted: TestData = decrypt_value(&encrypted, &key, aad).unwrap();
 
         assert_eq!(original, decrypted);
@@ -416,11 +398,10 @@ mod tests {
     fn test_empty_plaintext() {
         let key = [42u8; 32];
         let salt = [1u8; 32];
-        let params = Argon2Params::default();
         let plaintext = b"";
         let aad = b"";
 
-        let encrypted = encrypt(plaintext, &key, salt, params, aad).unwrap();
+        let encrypted = encrypt(plaintext, &key, salt, aad).unwrap();
         let decrypted = decrypt(&encrypted, &key, aad).unwrap();
 
         assert_eq!(decrypted, plaintext);
@@ -430,13 +411,12 @@ mod tests {
     fn test_large_plaintext() {
         let key = [42u8; 32];
         let salt = [1u8; 32];
-        let params = Argon2Params::default();
 
         // 1 MB of data
         let plaintext: Vec<u8> = (0..1_000_000).map(|i| (i % 256) as u8).collect();
         let aad = b"large aad";
 
-        let encrypted = encrypt(&plaintext, &key, salt, params, aad).unwrap();
+        let encrypted = encrypt(&plaintext, &key, salt, aad).unwrap();
         let decrypted = decrypt(&encrypted, &key, aad).unwrap();
 
         assert_eq!(decrypted, plaintext);
@@ -446,12 +426,11 @@ mod tests {
     fn test_aad_mismatch_fails_decryption() {
         let key = [42u8; 32];
         let salt = [1u8; 32];
-        let params = Argon2Params::default();
         let plaintext = b"Secret data";
         let aad1 = b"header v1";
         let aad2 = b"header v2";
 
-        let encrypted = encrypt(plaintext, &key, salt, params, aad1).unwrap();
+        let encrypted = encrypt(plaintext, &key, salt, aad1).unwrap();
 
         // Decryption with wrong AAD should fail
         let result = decrypt(&encrypted, &key, aad2);
@@ -462,6 +441,6 @@ mod tests {
     fn test_encryption_method_profile_label() {
         let label = EncryptionMethod::Aes256Gcm.profile_label();
         assert!(label.contains("AES-256-GCM"));
-        assert!(label.contains("High"));
+        assert!(label.contains("Tinggi"));
     }
 }

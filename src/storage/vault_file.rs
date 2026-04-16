@@ -1,5 +1,6 @@
 //! Vault file format and I/O
 
+use bincode::Options;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -39,6 +40,8 @@ pub struct VaultFileHeader {
     pub security_questions: Vec<String>,
     /// Encryption method used for the vault payload
     pub encryption_method: EncryptionMethod,
+    /// Argon2 parameters used for key derivation
+    pub argon2_params: Argon2Params,
     /// Recovery metadata for forgot-password flow (optional)
     pub recovery_metadata: Option<RecoveryMetadata>,
 }
@@ -49,6 +52,7 @@ impl VaultFileHeader {
         vault: &Vault,
         has_keyfile: bool,
         encryption_method: EncryptionMethod,
+        argon2_params: Argon2Params,
         recovery_metadata: Option<RecoveryMetadata>,
     ) -> Self {
         let question_texts = if let Some(metadata) = recovery_metadata.as_ref() {
@@ -73,6 +77,7 @@ impl VaultFileHeader {
             security_question_count: question_texts.len() as u8,
             security_questions: question_texts,
             encryption_method,
+            argon2_params,
             recovery_metadata,
         }
     }
@@ -131,6 +136,7 @@ impl VaultFile {
             vault,
             keyfile.is_some(),
             encryption_method,
+            params,
             recovery_metadata,
         );
 
@@ -144,7 +150,7 @@ impl VaultFile {
 
         // Encrypt the vault data with header as AAD
         let encrypted_payload =
-            encrypt_with_method(encryption_method, &vault_bytes, &key, salt, params, &header_bytes)?;
+            encrypt_with_method(encryption_method, &vault_bytes, &key, salt, &header_bytes)?;
 
         Ok(Self {
             header,
@@ -185,7 +191,7 @@ impl VaultFile {
         let params = Argon2Params::default();
 
         let header =
-            VaultFileHeader::from_vault(&vault, has_keyfile, encryption_method, recovery_metadata);
+            VaultFileHeader::from_vault(&vault, has_keyfile, encryption_method, params, recovery_metadata);
 
         // Serialize header to use as AAD
         let header_bytes = bincode::serialize(&header)
@@ -197,7 +203,7 @@ impl VaultFile {
 
         // Encrypt the vault data with header as AAD
         let encrypted_payload =
-            encrypt_with_method(encryption_method, &vault_bytes, key, salt, params, &header_bytes)?;
+            encrypt_with_method(encryption_method, &vault_bytes, key, salt, &header_bytes)?;
 
         Ok(Self {
             header,
@@ -213,13 +219,18 @@ impl VaultFile {
             password,
             keyfile,
             &self.encrypted_payload.salt,
-            &self.encrypted_payload.argon2_params,
+            &self.header.argon2_params,
         )?;
 
         let vault_bytes =
             decrypt_with_method(self.header.encryption_method, &self.encrypted_payload, &key, &self.header_bytes)?;
 
-        bincode::deserialize(&vault_bytes).map_err(|_| Error::Decryption)
+        bincode::DefaultOptions::new()
+            .with_fixint_encoding()
+            .allow_trailing_bytes()
+            .with_limit(MAX_PAYLOAD_SIZE as u64)
+            .deserialize(&vault_bytes)
+            .map_err(|_| Error::Decryption)
     }
 
     /// Decrypt and return the vault with the derived key
@@ -233,13 +244,18 @@ impl VaultFile {
             password,
             keyfile,
             &self.encrypted_payload.salt,
-            &self.encrypted_payload.argon2_params,
+            &self.header.argon2_params,
         )?;
 
         let vault_bytes =
             decrypt_with_method(self.header.encryption_method, &self.encrypted_payload, &key, &self.header_bytes)?;
 
-        let vault: Vault = bincode::deserialize(&vault_bytes).map_err(|_| Error::Decryption)?;
+        let vault: Vault = bincode::DefaultOptions::new()
+            .with_fixint_encoding()
+            .allow_trailing_bytes()
+            .with_limit(MAX_PAYLOAD_SIZE as u64)
+            .deserialize(&vault_bytes)
+            .map_err(|_| Error::Decryption)?;
 
         Ok((vault, key))
     }
@@ -288,8 +304,23 @@ impl VaultFile {
         file.read_exact(&mut header_bytes)
             .map_err(|e| Error::FileRead(path.to_path_buf(), e))?;
 
-        let header: VaultFileHeader = bincode::deserialize(&header_bytes)
+        let header: VaultFileHeader = bincode::DefaultOptions::new()
+            .with_fixint_encoding()
+            .allow_trailing_bytes()
+            .with_limit(MAX_HEADER_SIZE as u64)
+            .deserialize(&header_bytes)
             .map_err(|e| Error::InvalidVaultFormat(format!("Invalid header: {}", e)))?;
+
+        // Sanity Check / Hard Limit on Argon2 parameters to prevent KDF DoS
+        if header.argon2_params.memory_kib > 262144    // 256 MiB
+            || header.argon2_params.iterations > 10
+            || header.argon2_params.parallelism > 8
+        {
+            return Err(Error::InvalidVaultFormat(
+                "Argon2 parameters exceed safety limits".to_string(),
+            ));
+        }
+
         let aad_bytes = header_bytes;
 
         // Read encrypted payload length
@@ -308,7 +339,11 @@ impl VaultFile {
         let mut payload_bytes = vec![0u8; payload_len];
         file.read_exact(&mut payload_bytes)
             .map_err(|e| Error::FileRead(path.to_path_buf(), e))?;
-        let encrypted_payload: EncryptedPayload = bincode::deserialize(&payload_bytes)
+        let encrypted_payload: EncryptedPayload = bincode::DefaultOptions::new()
+            .with_fixint_encoding()
+            .allow_trailing_bytes()
+            .with_limit(MAX_PAYLOAD_SIZE as u64)
+            .deserialize(&payload_bytes)
             .map_err(|e| Error::InvalidVaultFormat(format!("Invalid payload: {}", e)))?;
 
         Ok(Self {
@@ -595,6 +630,7 @@ mod tests {
             &Vault::new("Payload Test"),
             false,
             EncryptionMethod::Aes256Gcm,
+            Argon2Params::default(),
             None,
         );
         let header_bytes = bincode::serialize(&header).unwrap();
@@ -657,5 +693,47 @@ mod tests {
             // If deserialization of header fails, that's also a win for tamper-evidence
             // although AEAD AAD mismatch specifically happens during decrypt.
         }
+    }
+
+    #[test]
+    fn test_read_rejects_malicious_argon2_params() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("malicious.vault");
+
+        // 1. Create a header with malicious params (e.g., 4GB memory)
+        let mut params = Argon2Params::default();
+        params.memory_kib = 4 * 1024 * 1024; // 4 GiB
+
+        let vault = Vault::new("Malicious Vault");
+        let header = VaultFileHeader::from_vault(
+            &vault,
+            false,
+            EncryptionMethod::Aes256Gcm,
+            params,
+            None,
+        );
+
+        let header_bytes = bincode::serialize(&header).unwrap();
+        let payload = EncryptedPayload::new(vec![0; 32], [0; 12], [0; 32]);
+        let payload_bytes = bincode::serialize(&payload).unwrap();
+
+        // 2. Write manually to file
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(VAULT_MAGIC);
+        bytes.extend_from_slice(&VAULT_VERSION.to_le_bytes());
+        bytes.extend_from_slice(&(header_bytes.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(&header_bytes);
+        bytes.extend_from_slice(&(payload_bytes.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(&payload_bytes);
+
+        fs::write(&path, bytes).unwrap();
+
+        // 3. Attempt to read
+        let result = VaultFile::read(&path);
+
+        assert!(matches!(
+            result,
+            Err(Error::InvalidVaultFormat(msg)) if msg.contains("Argon2 parameters exceed safety limits")
+        ));
     }
 }

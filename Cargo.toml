@@ -37,6 +37,8 @@ uuid = { version = "1.10", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 directories = "5.0"
 nucleo = "0.5"
+unicode-normalization = "0.1"
+caseless = "0.2"
 
 # Error Handling
 thiserror = "1.0"

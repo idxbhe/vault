@@ -92,6 +92,8 @@ pub struct RecoveryStage {
     pub required_correct: u8,
     /// Encrypted hint text for this stage.
     pub encrypted_hint: EncryptedPayload,
+    /// Argon2 parameters used for key derivation for this stage.
+    pub argon2_params: Argon2Params,
 }
 
 /// Metadata needed to recover a forgotten password using security questions.
@@ -168,11 +170,12 @@ impl RecoveryMetadata {
             let key = derive_key(&key_material, None, &salt, &params)?;
 
             let encrypted_hint =
-                encrypt_with_method(encryption_method, hint.as_bytes(), &key, salt, params, &[])?;
+                encrypt_with_method(encryption_method, hint.as_bytes(), &key, salt, &[])?;
 
             stages.push(RecoveryStage {
                 required_correct: required_correct as u8,
                 encrypted_hint,
+                argon2_params: params,
             });
         }
 
@@ -200,7 +203,7 @@ impl RecoveryMetadata {
             &key_material,
             None,
             &stage.encrypted_hint.salt,
-            &stage.encrypted_hint.argon2_params,
+            &stage.argon2_params,
         )?;
 
         let decrypted = decrypt_with_method(self.encryption_method, &stage.encrypted_hint, &key, &[])?;

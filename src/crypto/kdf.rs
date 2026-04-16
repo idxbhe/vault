@@ -1,5 +1,8 @@
 //! Argon2id key derivation function
 
+use std::thread;
+use std::time::Instant;
+
 use argon2::{Algorithm, Argon2, Params, Version};
 use rand::rngs::OsRng;
 use serde::{Deserialize, Serialize};
@@ -8,6 +11,7 @@ use zeroize::Zeroize;
 
 use crate::crypto::SecureString;
 use crate::utils::error::{Error, Result};
+use unicode_normalization::UnicodeNormalization;
 
 /// Argon2 parameters for key derivation
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -53,6 +57,11 @@ impl Argon2Params {
         )
         .map_err(|e| Error::KeyDerivation(e.to_string()))
     }
+
+    /// Calibrate parameters for the current hardware
+    pub fn calibrate(target_ms: u128) -> Self {
+        calibrate_argon2_params(target_ms)
+    }
 }
 
 /// Generate a random 32-byte salt
@@ -61,6 +70,74 @@ pub fn generate_salt() -> [u8; 32] {
     use rand::RngCore;
     OsRng.fill_bytes(&mut salt);
     salt
+}
+
+/// Calibrate Argon2 parameters based on current hardware performance
+pub fn calibrate_argon2_params(target_ms: u128) -> Argon2Params {
+    let mut params = Argon2Params {
+        memory_kib: 16384, // Start with 16 MiB
+        iterations: 1,
+        parallelism: thread::available_parallelism()
+            .map(|p| p.get() as u32)
+            .unwrap_or(2),
+    };
+
+    // Safety limits
+    const MAX_MEMORY_KIB: u32 = 524288; // 512 MiB
+    const MAX_ITERATIONS: u32 = 10;
+    const TOTAL_TIMEOUT_MS: u128 = 5000; // 5 seconds max for calibration total
+
+    let start_calibration = Instant::now();
+    let dummy_data = b"benchmark_password";
+    let salt = [0u8; 32];
+    let mut output = [0u8; 32];
+
+    loop {
+        let trial_start = Instant::now();
+
+        let argon2_params = Params::new(
+            params.memory_kib,
+            params.iterations,
+            params.parallelism,
+            Some(32),
+        )
+        .unwrap_or_else(|_| Params::default());
+
+        let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, argon2_params);
+
+        let _ = argon2.hash_password_into(dummy_data, &salt, &mut output);
+
+        let elapsed = trial_start.elapsed().as_millis();
+
+        // If we reached the target or hit global timeout/limits, we are done
+        if elapsed >= target_ms
+            || start_calibration.elapsed().as_millis() >= TOTAL_TIMEOUT_MS
+            || (params.memory_kib >= MAX_MEMORY_KIB && params.iterations >= MAX_ITERATIONS)
+        {
+            break;
+        }
+
+        // Scaling logic:
+        // 1. Try to increase memory first
+        if params.memory_kib < MAX_MEMORY_KIB && elapsed < target_ms / 2 {
+            params.memory_kib = (params.memory_kib * 2).min(MAX_MEMORY_KIB);
+        }
+        // 2. Then increase iterations
+        else if params.iterations < MAX_ITERATIONS {
+            params.iterations += 1;
+        }
+        // 3. Fine-tuning memory if we are close
+        else if params.memory_kib < MAX_MEMORY_KIB {
+            params.memory_kib = (params.memory_kib as f64 * 1.25) as u32;
+            if params.memory_kib > MAX_MEMORY_KIB {
+                params.memory_kib = MAX_MEMORY_KIB;
+            }
+        } else {
+            break;
+        }
+    }
+
+    params
 }
 
 /// Derive a 256-bit encryption key from password, optional keyfile, and salt
@@ -135,8 +212,8 @@ pub fn hash_security_answer(answer: &SecureString) -> Result<(Vec<u8>, [u8; 32])
         parallelism: 2,
     };
 
-    // Normalize: trim + lowercase
-    let normalized = answer.as_str().trim().to_lowercase();
+    // Normalize using Unicode Case Folding + NFKC
+    let normalized = normalize_security_answer(answer.as_str());
     let normalized_ss = SecureString::from(normalized);
 
     let key = derive_key(&normalized_ss, None, &salt, &params)?;
@@ -155,8 +232,8 @@ pub fn verify_security_answer(
         parallelism: 2,
     };
 
-    // Normalize: trim + lowercase
-    let normalized = answer.as_str().trim().to_lowercase();
+    // Normalize using Unicode Case Folding + NFKC
+    let normalized = normalize_security_answer(answer.as_str());
     let normalized_ss = SecureString::from(normalized);
 
     let derived = derive_key(&normalized_ss, None, salt, &params)?;
@@ -176,6 +253,19 @@ fn constant_time_compare(a: &[u8], b: &[u8]) -> bool {
         result |= x ^ y;
     }
     result == 0
+}
+
+/// Normalize text using Unicode Case Folding and NFKC normalization.
+/// This ensures consistent matching across different languages and visual representations.
+fn normalize_security_answer(answer: &str) -> String {
+    // Trim whitespace first (Unicode-aware trim is built-in to Rust's trim())
+    let trimmed = answer.trim();
+    
+    // Standard Unicode approach for stable caseless matching:
+    // NFKC -> Case Fold -> NFKC
+    let nfkc1 = trimmed.nfkc().collect::<String>();
+    let folded = caseless::default_case_fold_str(&nfkc1);
+    folded.nfkc().collect::<String>()
 }
 
 #[cfg(test)]
@@ -270,6 +360,47 @@ mod tests {
     }
 
     #[test]
+    fn test_security_answer_international_chars() {
+        // Turkish 'i' cases: İ (U+0130) vs i, I vs ı (U+0131)
+        // Note: Standard Unicode Case Folding maps İ to i + combining dot (U+0307)
+        // whereas to_lowercase() might behave differently depending on locale.
+        let answer_tr = SecureString::from_str("İstanbul");
+        let (hash, salt) = hash_security_answer(&answer_tr).unwrap();
+
+        let variations = vec![
+            "i\u{0307}stanbul", // correct lowercase (i + combining dot)
+            "İSTANBUL",          // uppercase with Turkish dot
+            "  İSTANBUL  ",      // with spaces
+            // "istanbul" is NOT expected to match "İstanbul" under standard 
+            // locale-independent Unicode case folding because İ maps to i+dot.
+        ];
+
+        for var in variations {
+            let var_ss = SecureString::from_str(var);
+            assert!(
+                verify_security_answer(&var_ss, &hash, &salt).unwrap(),
+                "Turkish variation should match: '{}'",
+                var
+            );
+        }
+
+        // Cyrillic cases
+        let answer_cy = SecureString::from_str("Москва"); // Moscow
+        let (hash_cy, salt_cy) = hash_security_answer(&answer_cy).unwrap();
+        
+        let var_cy = SecureString::from_str("москва");
+        assert!(verify_security_answer(&var_cy, &hash_cy, &salt_cy).unwrap());
+
+        // Arabic / Ligatures
+        // 'ﬁ' (U+FB01) should match 'fi' due to NFKC
+        let answer_lig = SecureString::from_str("ﬁle"); 
+        let (hash_lig, salt_lig) = hash_security_answer(&answer_lig).unwrap();
+        
+        let var_lig = SecureString::from_str("File");
+        assert!(verify_security_answer(&var_lig, &hash_lig, &salt_lig).unwrap());
+    }
+
+    #[test]
     fn test_constant_time_compare() {
         let a = [1, 2, 3, 4];
         let b = [1, 2, 3, 4];
@@ -279,5 +410,26 @@ mod tests {
         assert!(constant_time_compare(&a, &b));
         assert!(!constant_time_compare(&a, &c));
         assert!(!constant_time_compare(&a, &d));
+    }
+
+    #[test]
+    fn test_calibrate_argon2_params() {
+        // Test with a low target to ensure it completes quickly
+        let target_ms = 50;
+        let params = calibrate_argon2_params(target_ms);
+
+        assert!(params.memory_kib >= 16384);
+        assert!(params.iterations >= 1);
+        assert!(params.parallelism >= 1);
+
+        // Ensure it doesn't exceed safety limits
+        assert!(params.memory_kib <= 524288);
+        assert!(params.iterations <= 10);
+    }
+
+    #[test]
+    fn test_argon2_params_calibrate_method() {
+        let params = Argon2Params::calibrate(30);
+        assert!(params.memory_kib >= 16384);
     }
 }
