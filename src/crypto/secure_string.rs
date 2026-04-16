@@ -2,6 +2,7 @@
 
 use std::fmt;
 use serde::{Deserialize, Serialize, Serializer, Deserializer};
+use subtle::ConstantTimeEq;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// A string type that securely zeros its memory when dropped.
@@ -95,12 +96,17 @@ impl fmt::Display for SecureString {
     }
 }
 
-// Implement PartialEq for testing
+// Implement PartialEq with constant-time comparison to prevent timing attacks
 impl PartialEq for SecureString {
     fn eq(&self, other: &Self) -> bool {
-        // Constant-time comparison would be ideal but string length
-        // comparison already leaks timing info, so standard comparison is ok
-        self.inner == other.inner
+        // NOTE: Absolute constant-time comparison of variable-length strings is only 
+        // possible with padding. Without padding, comparing lengths leaks information.
+        // However, for strings of equal length, .ct_eq() ensures comparison is constant-time.
+        if self.inner.len() != other.inner.len() {
+            return false;
+        }
+        
+        self.inner.as_bytes().ct_eq(other.inner.as_bytes()).into()
     }
 }
 

@@ -25,6 +25,7 @@ argon2 = "0.5"
 rand = "0.8"
 zeroize = { version = "1.8", features = ["derive"] }
 sha2 = "0.10"
+subtle = "2.6"
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
